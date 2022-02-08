@@ -224,4 +224,6 @@ int apkenv_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *, size_t, void *), voi
 void apkenv_notify_gdb_of_libraries(void);
 int apkenv_add_sopath(const char *path);
 
+bool do_we_have_this_handle(void *handle);
+
 #endif

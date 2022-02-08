@@ -120,7 +120,9 @@ void *bionic_dlsym(void *handle, const char *symbol)
         goto err;
     }
 
-	if(!do_we_have_this_handle(handle)) { // if the handle is not our handle, we can probably just try calling glibc dlsym
+	bool is_this_our_handle = do_we_have_this_handle(handle);
+
+	if(!is_this_our_handle) { // if the handle is not our handle, we can probably just try calling glibc dlsym
 		if ((sym = dlsym(handle, symbol))) {
             pthread_mutex_unlock(&apkenv_dl_lock);
             verbose("found system version");
@@ -128,21 +130,20 @@ void *bionic_dlsym(void *handle, const char *symbol)
 		}
 	}
 
-    {
-        char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
-        memcpy(wrap_sym_name + 7, symbol, MIN(sizeof(wrap_sym_name) - 7, strlen(symbol)));
-        if ((sym = dlsym(RTLD_DEFAULT, wrap_sym_name))) {
-            pthread_mutex_unlock(&apkenv_dl_lock);
-            verbose("found bionic_ version");
-            return wrapper_create(symbol, sym);
-        } else if ((sym = dlsym(RTLD_DEFAULT, symbol))) {
-            pthread_mutex_unlock(&apkenv_dl_lock);
-            verbose("found system version");
-            return wrapper_create(symbol, sym);
-        } else {
-            verbose("haven't found bionic_ nor system version; dlerror: >%s<", dlerror());
-		}
-    }
+
+    char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+    memcpy(wrap_sym_name + 7, symbol, MIN(sizeof(wrap_sym_name) - 7, strlen(symbol)));
+    if ((sym = dlsym(RTLD_DEFAULT, wrap_sym_name))) {
+        pthread_mutex_unlock(&apkenv_dl_lock);
+        verbose("found bionic_ version");
+        return wrapper_create(symbol, sym);
+    } else if ((sym = dlsym(RTLD_DEFAULT, symbol))) {
+        pthread_mutex_unlock(&apkenv_dl_lock);
+        verbose("found system version");
+        return wrapper_create(symbol, sym);
+    } else {
+        verbose("haven't found bionic_ nor system version; dlerror: >%s<", dlerror());
+	}
 
     if(unlikely(handle == 0)) {
         set_dlerror(DL_ERR_INVALID_LIBRARY_HANDLE);
@@ -159,10 +160,12 @@ void *bionic_dlsym(void *handle, const char *symbol)
         if(si && si->next) {
             sym = apkenv_lookup(symbol, &found, si->next);
         }
-    } else {
+    } else if (is_this_our_handle) {
         found = (soinfo*)handle;
         sym = apkenv_lookup_in_library(found, symbol);
-    }
+    } else {
+		sym = 0;
+	}
 
     if(likely(sym != 0)) {
         bind = ELF32_ST_BIND(sym->st_info);
