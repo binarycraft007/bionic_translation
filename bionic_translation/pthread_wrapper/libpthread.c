@@ -8,6 +8,16 @@
 #include <sys/mman.h>
 #include <setjmp.h>
 
+// when __GLIBC__ (or some glibc specific symbol) is not defined, we're assuming musl; can't check to be sure because 🤡
+
+#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP {{PTHREAD_MUTEX_RECURSIVE}}
+#endif
+
+#ifndef PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP
+#define PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP {{PTHREAD_MUTEX_ERRORCHECK}}
+#endif
+
 typedef struct {
    union {
       struct {
@@ -94,7 +104,11 @@ _Static_assert(sizeof(bionic_pthread_t) == sizeof(pthread_t), "bionic_pthread_t 
 struct bionic_pthread_cleanup_t {
    union {
       struct bionic_pthread_cleanup_t *prev;
+#ifdef __GLIBC__
       __pthread_unwind_buf_t *glibc;
+#else
+      struct __ptcb *musl;
+#endif
    };
    void (*routine)(void*);
    void *arg;
@@ -122,6 +136,7 @@ void
 bionic___pthread_cleanup_push(struct bionic_pthread_cleanup_t *c, void (*routine)(void*), void *arg)
 {
    assert(c && routine);
+#ifdef __GLIBC__
    c->glibc = mmap(NULL, sizeof(*c->glibc), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
    c->routine = routine;
    c->arg = arg;
@@ -133,18 +148,29 @@ bionic___pthread_cleanup_push(struct bionic_pthread_cleanup_t *c, void (*routine
    }
 
    __pthread_register_cancel(c->glibc);
+#else
+   c->musl = malloc(sizeof(struct __ptcb)); // TODO - use the mmap as above?
+   c->routine = routine;
+   c->arg = arg;
+   _pthread_cleanup_push(c->musl, routine, arg);
+#endif
 }
 
 void
 bionic___pthread_cleanup_pop(struct bionic_pthread_cleanup_t *c, int execute)
 {
-   assert(c && IS_MAPPED(c));
+#ifdef __GLIBC__
+   assert(c && IS_MAPPED(c)); // TODO - analogically for musl?
    __pthread_unregister_cancel(c->glibc);
 
    if (execute)
       c->routine(c->arg);
 
    munmap(c->glibc, sizeof(*c->glibc));
+#else
+   _pthread_cleanup_pop(c->musl, execute);
+   free(c->musl);
+#endif
 }
 
 int

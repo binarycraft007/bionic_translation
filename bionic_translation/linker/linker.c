@@ -182,7 +182,10 @@ enum {
 //static struct r_debug _r_debug = {1, NULL, &rtld_db_dlactivity,
 //                                  RT_CONSISTENT, 0};
 /* apkenv */
-#define rtld_db_dlactivity() ((void (*)(void))_r_debug.r_brk)()
+// this will be filled by the main executable (either to &_r_debug, or to the address taken from DT_DEBUG)
+struct r_debug *_r_debug_ptr;
+
+#define rtld_db_dlactivity() ((void (*)(void))_r_debug_ptr->r_brk)()
 
 static struct link_map *apkenv_r_debug_head, *apkenv_r_debug_tail;
 
@@ -239,12 +242,12 @@ static void apkenv_notify_gdb_of_load(soinfo * info)
 
     pthread_mutex_lock(&apkenv__r_debug_lock);
 
-    _r_debug.r_state = RT_ADD;
+    _r_debug_ptr->r_state = RT_ADD;
     rtld_db_dlactivity();
 
     apkenv_insert_soinfo_into_debug_map(info);
 
-    _r_debug.r_state = RT_CONSISTENT;
+    _r_debug_ptr->r_state = RT_CONSISTENT;
     rtld_db_dlactivity();
 
     apkenv_notify_gdb_of_libraries();
@@ -260,12 +263,12 @@ static void apkenv_notify_gdb_of_unload(soinfo * info)
 
     pthread_mutex_lock(&apkenv__r_debug_lock);
 
-    _r_debug.r_state = RT_DELETE;
+    _r_debug_ptr->r_state = RT_DELETE;
     rtld_db_dlactivity();
 
     apkenv_remove_soinfo_from_debug_map(info);
 
-    _r_debug.r_state = RT_CONSISTENT;
+    _r_debug_ptr->r_state = RT_CONSISTENT;
     rtld_db_dlactivity();
 
     apkenv_notify_gdb_of_libraries();
@@ -274,18 +277,18 @@ static void apkenv_notify_gdb_of_unload(soinfo * info)
 
 void apkenv_notify_gdb_of_libraries(void)
 {
-    struct link_map *tmap = _r_debug.r_map;
+    struct link_map *tmap = _r_debug_ptr->r_map;
     while (tmap->l_next != NULL)
         tmap = tmap->l_next;
 
-    _r_debug.r_state = RT_ADD;
+    _r_debug_ptr->r_state = RT_ADD;
     rtld_db_dlactivity();
 
     /* append android libs before notifying gdb */
     tmap->l_next = apkenv_r_debug_head;
     apkenv_r_debug_head->l_prev = tmap;
 
-    _r_debug.r_state = RT_CONSISTENT;
+    _r_debug_ptr->r_state = RT_CONSISTENT;
     rtld_db_dlactivity();
 
     /* restore so that ld-linux doesn't freak out */
@@ -1420,10 +1423,12 @@ static int apkenv_reloc_library(soinfo *si, Elf32_Rel *rel, unsigned count)
             }
 
             if (sym_addr != 0) {
+#ifdef __GLIBC__
                 Dl_info info;
                 ElfW(Sym) *extra;
                 if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF32_ST_TYPE(extra->st_info) == STT_FUNC))
                     sym_addr = (unsigned)wrapper_create(sym_name, (void*)sym_addr);
+#endif
             } else if (s == NULL) {
                 /* We only allow an undefined symbol if this is a weak
                    reference..   */
@@ -2017,7 +2022,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
             break;
         case DT_DEBUG:
             // Set the DT_DEBUG entry to the addres of _r_debug for GDB
-            *d = (int) &_r_debug;
+            *d = (int) _r_debug_ptr;
             break;
          case DT_RELA:
             DL_ERR("%5d DT_RELA not supported", apkenv_pid);
@@ -2339,7 +2344,7 @@ sanitize:
     map->l_prev = NULL;
     map->l_next = NULL;
 
-    _r_debug.r_map = map;
+    _r_debug_ptr->r_map = map;
     apkenv_r_debug_tail = map;
 
         /* gdb expects the linker to be in the debug shared object list,
