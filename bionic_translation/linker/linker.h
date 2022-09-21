@@ -32,8 +32,13 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <elf.h>
+#include <gelf.h>
 #include <link.h>
 #include <stdbool.h>
+
+#if defined(__aarch64__) || defined(__x86_64__)
+#define USE_RELA
+#endif
 
 #undef PAGE_MASK
 #undef PAGE_SIZE
@@ -57,10 +62,10 @@ struct link_map
 /* needed for dl_iterate_phdr to be passed to the callbacks provided */
 struct dl_phdr_info
 {
-    Elf32_Addr dlpi_addr;
+    GElf_Addr dlpi_addr;
     const char *dlpi_name;
-    const Elf32_Phdr *dlpi_phdr;
-    Elf32_Half dlpi_phnum;
+    const GElf_Phdr *dlpi_phdr;
+    GElf_Half dlpi_phnum;
 };
 
 
@@ -93,61 +98,71 @@ typedef struct soinfo soinfo;
 struct soinfo
 {
     const char name[SOINFO_NAME_LEN];
-    Elf32_Phdr *phdr;
-    int phnum;
-    unsigned entry;
-    unsigned base;
-    unsigned size;
+    GElf_Phdr *phdr;
+    size_t phnum;
+    GElf_Addr entry;
+    GElf_Addr base;
+    size_t size;
 
-    int unused;  // DO NOT USE, maintained for compatibility.
+    uint32_t unused;  // DO NOT USE, maintained for compatibility.
 
-    unsigned *dynamic;
+    GElf_Dyn *dynamic;
 
-    unsigned wrprotect_start;
-    unsigned wrprotect_end;
+    uint32_t wrprotect_start;
+    uint32_t wrprotect_end;
 
     soinfo *next;
-    unsigned flags;
+    uint32_t flags;
 
     const char *strtab;
-    Elf32_Sym *symtab;
+    GElf_Sym *symtab;
 
-    unsigned nbucket;
-    unsigned nchain;
-    unsigned *bucket;
-    unsigned *chain;
+    size_t nbucket;
+    size_t nchain;
+    uint32_t *bucket;
+    uint32_t *chain;
 
-    unsigned *plt_got;
+    GElf_Addr **plt_got;
 
-    Elf32_Rel *plt_rel;
-    unsigned plt_rel_count;
-
-    Elf32_Rel *rel;
-    unsigned rel_count;
+#if defined(USE_RELA)
+	GElf_Rela *plt_rela;
+	size_t plt_rela_count;
+	GElf_Rela *rela;
+	size_t rela_count;
+#else
+	GElf_Rel *plt_rel;
+	size_t plt_rel_count;
+	GElf_Rel *rel;
+	size_t rel_count;
+#endif
 
     unsigned *preinit_array;
-    unsigned preinit_array_count;
+    size_t preinit_array_count;
 
     unsigned *init_array;
-    unsigned init_array_count;
+    size_t init_array_count;
     unsigned *fini_array;
-    unsigned fini_array_count;
+    size_t fini_array_count;
 
     void (*init_func)(void);
     void (*fini_func)(void);
 
-#ifdef ANDROID_ARM_LINKER
-    /* ARM EABI section used for stack unwinding. */
-    unsigned *ARM_exidx;
-    unsigned ARM_exidx_count;
+#if defined(__arm__)
+  // ARM EABI section used for stack unwinding.
+	uint32_t *ARM_exidx;
+	size_t ARM_exidx_count;
+#elif defined(__mips__)
+	uint32_t mips_symtabno;
+	uint32_t mips_local_gotno;
+	uint32_t mips_gotsym;
 #endif
 
-    unsigned refcount;
+    size_t refcount;
     struct link_map linkmap;
 
-    int constructors_called;
+    bool constructors_called;
 
-    Elf32_Addr gnu_relro_start;
+    GElf_Addr gnu_relro_start;
     unsigned gnu_relro_len;
 
     /* apkenv stuff */
@@ -156,30 +171,6 @@ struct soinfo
 
 
 extern soinfo apkenv_libdl_info;
-
-#ifdef ANDROID_ARM_LINKER
-
-#define R_ARM_COPY       20
-#define R_ARM_GLOB_DAT   21
-#define R_ARM_JUMP_SLOT  22
-#define R_ARM_RELATIVE   23
-
-/* According to the AAPCS specification, we only
- * need the above relocations. However, in practice,
- * the following ones turn up from time to time.
- */
-#define R_ARM_ABS32      2
-#define R_ARM_REL32      3
-
-#elif defined(ANDROID_X86_LINKER)
-
-#define R_386_32         1
-#define R_386_PC32       2
-#define R_386_GLOB_DAT   6
-#define R_386_JUMP_SLOT  7
-#define R_386_RELATIVE   8
-
-#endif
 
 #ifndef DT_INIT_ARRAY
 #define DT_INIT_ARRAY      25
@@ -207,17 +198,17 @@ extern soinfo apkenv_libdl_info;
 
 soinfo *apkenv_find_library(const char *name, const bool try_glibc);
 unsigned apkenv_unload_library(soinfo *si);
-Elf32_Sym *apkenv_lookup_in_library(soinfo *si, const char *name);
-Elf32_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start);
+GElf_Sym *apkenv_lookup_in_library(soinfo *si, const char *name);
+GElf_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start);
 soinfo *apkenv_find_containing_library(const void *addr);
-Elf32_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si);
+GElf_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si);
 const char *apkenv_linker_get_error(void);
 void apkenv_call_constructors_recursive(soinfo *si);
 
-#ifdef ANDROID_ARM_LINKER
+#if defined(__arm__)
 typedef long unsigned int *_Unwind_Ptr;
 _Unwind_Ptr apkenv_dl_unwind_find_exidx(_Unwind_Ptr pc, int *pcount);
-#elif defined(ANDROID_X86_LINKER)
+#elif defined(__aarch64__) || defined(__i386__) || defined(__mips__) || defined(__x86_64__)
 int apkenv_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *, size_t, void *), void *);
 #endif
 

@@ -133,9 +133,18 @@ extern struct _link_stats apkenv_linker_stats;
 
 #if COUNT_PAGES
 extern unsigned apkenv_bitmask[];
-#define MARK(offset)         do {                                        \
+#if defined(__LP64__)
+#define MARK(offset) \
+    do { \
+        if ((((offset) >> 12) >> 5) < 4096) \
+            apkenv_bitmask[((offset) >> 12) >> 5] |= (1 << (((offset) >> 12) & 31)); \
+    } while (0)
+#else
+#define MARK(offset) \
+    do { \
         apkenv_bitmask[((offset) >> 12) >> 3] |= (1 << (((offset) >> 12) & 7)); \
-    } while(0)
+    } while (0)
+#endif
 #else
 #define MARK(x)              do {} while (0)
 #endif

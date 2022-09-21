@@ -44,6 +44,7 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <assert.h>
+#include <gelf.h>
 
 #include <pthread.h>
 
@@ -366,7 +367,7 @@ static void apkenv_free_info(soinfo *si)
  *
  * This function is exposed via dlfcn.c and libdl.so.
  */
-#ifdef ANDROID_ARM_LINKER
+#if defined(__arm__)
 _Unwind_Ptr bionic_dl_unwind_find_exidx(_Unwind_Ptr pc, int *pcount)
 {
     soinfo *si;
@@ -380,7 +381,7 @@ _Unwind_Ptr bionic_dl_unwind_find_exidx(_Unwind_Ptr pc, int *pcount)
    *pcount = 0;
     return NULL;
 }
-#elif defined(ANDROID_X86_LINKER)
+#elif defined(__aarch64__) || defined(__i386__) || defined(__mips__) || defined(__x86_64__)
 /* Here, we only have to provide a callback to iterate across all the
  * loaded libraries. gcc_eh does the rest. */
 int
@@ -402,10 +403,10 @@ bionic_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *info, size_t size, void *d
 }
 #endif
 
-static Elf32_Sym *apkenv__elf_lookup(soinfo *si, unsigned hash, const char *name)
+static GElf_Sym *apkenv__elf_lookup(soinfo *si, unsigned hash, const char *name)
 {
-    Elf32_Sym *s;
-    Elf32_Sym *symtab = si->symtab;
+    GElf_Sym *s;
+    GElf_Sym *symtab = si->symtab;
     const char *strtab = si->strtab;
     unsigned n;
 
@@ -452,12 +453,11 @@ static unsigned apkenv_elfhash(const char *_name)
 
 const char *apkenv_last_library_used = NULL;
 
-static Elf32_Sym *
-apkenv__do_lookup(soinfo *si, const char *name, unsigned *base)
+static GElf_Sym *
+apkenv__do_lookup(soinfo *si, const char *name, GElf_Addr *base)
 {
     unsigned elf_hash = apkenv_elfhash(name);
-    Elf32_Sym *s;
-    unsigned *d;
+    GElf_Sym *s;
     soinfo *lsi = si;
     int i;
 
@@ -483,9 +483,9 @@ apkenv__do_lookup(soinfo *si, const char *name, unsigned *base)
             goto done;
     }
 
-    for(d = si->dynamic; *d; d += 2) {
-        if(d[0] == DT_NEEDED){
-            lsi = (soinfo *)d[1];
+    for(GElf_Dyn *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+        if(d->d_tag == DT_NEEDED){
+            lsi = (soinfo *)d->d_un.d_val;
             if (!apkenv_validate_soinfo(lsi)) {
                 DL_ERR("%5d bad DT_NEEDED pointer in %s",
                        apkenv_pid, si->name);
@@ -529,17 +529,17 @@ done:
 /* This is used by dl_sym().  It performs symbol lookup only within the
    specified soinfo object and not in any of its dependencies.
  */
-Elf32_Sym *apkenv_lookup_in_library(soinfo *si, const char *name)
+GElf_Sym *apkenv_lookup_in_library(soinfo *si, const char *name)
 {
     return apkenv__elf_lookup(si, apkenv_elfhash(name), name);
 }
 
 /* This is used by dl_sym().  It performs a global symbol lookup.
  */
-Elf32_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start)
+GElf_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start)
 {
     unsigned elf_hash = apkenv_elfhash(name);
-    Elf32_Sym *s = NULL;
+    GElf_Sym *s = NULL;
     soinfo *si;
 
     if(start == NULL) {
@@ -580,7 +580,7 @@ soinfo *apkenv_find_containing_library(const void *addr)
     return NULL;
 }
 
-Elf32_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si)
+GElf_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si)
 {
     unsigned int i;
     unsigned soaddr = (unsigned)addr - si->base;
@@ -588,7 +588,7 @@ Elf32_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si)
     /* Search the library's symbol table for any defined symbol which
      * contains this address */
     for(i=0; i<si->nchain; i++) {
-        Elf32_Sym *sym = &si->symtab[i];
+        GElf_Sym *sym = &si->symtab[i];
 
         if(sym->st_shndx != SHN_UNDEF &&
            soaddr >= sym->st_value &&
@@ -603,7 +603,7 @@ Elf32_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si)
 #if 0
 static void dump(soinfo *si)
 {
-    Elf32_Sym *s = si->symtab;
+    GElf_Sym *s = si->symtab;
     unsigned n;
 
     for(n = 0; n < si->nchain; n++) {
@@ -767,19 +767,19 @@ apkenv_is_prelinked(int fd, const char *name)
 static int
 apkenv_verify_elf_object(void *base, const char *name)
 {
-    Elf32_Ehdr *hdr = (Elf32_Ehdr *) base;
+    GElf_Ehdr *hdr = (GElf_Ehdr *) base;
 
     if (hdr->e_ident[EI_MAG0] != ELFMAG0) return -1;
     if (hdr->e_ident[EI_MAG1] != ELFMAG1) return -1;
     if (hdr->e_ident[EI_MAG2] != ELFMAG2) return -1;
     if (hdr->e_ident[EI_MAG3] != ELFMAG3) return -1;
 
-    /* TODO: Should we verify anything else in the header? */
-#ifdef ANDROID_ARM_LINKER
+    /* TODO: make this proper for aarch64 / x86_64 */
+/*#ifdef ANDROID_ARM_LINKER
     if (hdr->e_machine != EM_ARM) return -1;
 #elif defined(ANDROID_X86_LINKER)
     if (hdr->e_machine != EM_386) return -1;
-#endif
+#endif*/
     return 0;
 }
 
@@ -812,8 +812,8 @@ apkenv_get_lib_extents(int fd, const char *name, void *__hdr, unsigned *total_sz
     unsigned min_vaddr = 0xffffffff;
     unsigned max_vaddr = 0;
     unsigned char *_hdr = (unsigned char *)__hdr;
-    Elf32_Ehdr *ehdr = (Elf32_Ehdr *)_hdr;
-    Elf32_Phdr *phdr;
+    GElf_Ehdr *ehdr = (GElf_Ehdr *)_hdr;
+    GElf_Phdr *phdr;
     int cnt;
 
     TRACE("[ %5d Computing extents for '%s'. ]\n", apkenv_pid, name);
@@ -832,7 +832,7 @@ apkenv_get_lib_extents(int fd, const char *name, void *__hdr, unsigned *total_sz
         TRACE("[ %5d - Non-prelinked library '%s' found. ]\n", apkenv_pid, name);
     }
 
-    phdr = (Elf32_Phdr *)(_hdr + ehdr->e_phoff);
+    phdr = (GElf_Phdr *)(_hdr + ehdr->e_phoff);
 
     /* find the min/max p_vaddrs from all the PT_LOAD segments so we can
      * get the range. */
@@ -947,12 +947,12 @@ err:
 static int
 apkenv_load_segments(int fd, void *header, soinfo *si)
 {
-    Elf32_Ehdr *ehdr = (Elf32_Ehdr *)header;
-    Elf32_Phdr *phdr = (Elf32_Phdr *)((unsigned char *)header + ehdr->e_phoff);
-    Elf32_Addr base = (Elf32_Addr) si->base;
+    GElf_Ehdr *ehdr = (GElf_Ehdr *)header;
+    GElf_Phdr *phdr = (GElf_Phdr *)((unsigned char *)header + ehdr->e_phoff);
+    GElf_Addr base = (GElf_Addr) si->base;
     int cnt;
     unsigned len;
-    Elf32_Addr tmp;
+    GElf_Addr tmp;
     unsigned char *pbase;
     unsigned char *extra_base;
     unsigned extra_len;
@@ -1018,7 +1018,7 @@ apkenv_load_segments(int fd, void *header, soinfo *si)
              *                  |                     |
              *                 _+---------------------+  page boundary
              */
-            tmp = (Elf32_Addr)(((unsigned)pbase + len + PAGE_SIZE - 1) &
+            tmp = (GElf_Addr)(((unsigned)pbase + len + PAGE_SIZE - 1) &
                                     (~PAGE_MASK));
             if (tmp < (base + phdr->p_vaddr + phdr->p_memsz)) {
                 extra_len = base + phdr->p_vaddr + phdr->p_memsz - tmp;
@@ -1072,7 +1072,7 @@ apkenv_load_segments(int fd, void *header, soinfo *si)
         } else if (phdr->p_type == PT_DYNAMIC) {
             DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
             /* this segment contains the dynamic linking information */
-            si->dynamic = (unsigned *)(base + phdr->p_vaddr);
+            si->dynamic = (GElf_Dyn *)(base + phdr->p_vaddr);
         } else if (phdr->p_type == PT_GNU_RELRO) {
             if ((phdr->p_vaddr >= si->size)
                     || ((phdr->p_vaddr + phdr->p_memsz) > si->size)
@@ -1082,10 +1082,10 @@ apkenv_load_segments(int fd, void *header, soinfo *si)
                        phdr->p_vaddr, phdr->p_memsz);
                 goto fail;
             }
-            si->gnu_relro_start = (Elf32_Addr) (base + phdr->p_vaddr);
+            si->gnu_relro_start = (GElf_Addr) (base + phdr->p_vaddr);
             si->gnu_relro_len = (unsigned) phdr->p_memsz;
         } else {
-#ifdef ANDROID_ARM_LINKER
+#if defined(__arm__)
             if (phdr->p_type == PT_ARM_EXIDX) {
                 DEBUG_DUMP_PHDR(phdr, "PT_ARM_EXIDX", apkenv_pid);
                 /* exidx entries (used for stack unwinding) are 8 bytes each.
@@ -1129,11 +1129,11 @@ fail:
  */
 #if 0
 static unsigned
-get_wr_offset(int fd, const char *name, Elf32_Ehdr *ehdr)
+get_wr_offset(int fd, const char *name, GElf_Ehdr *ehdr)
 {
-    Elf32_Shdr *shdr_start;
-    Elf32_Shdr *shdr;
-    int shdr_sz = ehdr->e_shnum * sizeof(Elf32_Shdr);
+    GElf_Shdr *shdr_start;
+    GElf_Shdr *shdr;
+    int shdr_sz = ehdr->e_shnum * sizeof(GElf_Shdr);
     int cnt;
     unsigned wr_offset = 0xffffffff;
 
@@ -1167,7 +1167,7 @@ apkenv_load_library(const char *name, const bool try_glibc)
     unsigned req_base;
     const char *bname;
     soinfo *si = NULL;
-    Elf32_Ehdr *hdr;
+    GElf_Ehdr *hdr;
 
     if(fd == -1) {
         if (try_glibc && dlopen(name, RTLD_NOW | RTLD_GLOBAL)) {
@@ -1234,7 +1234,7 @@ apkenv_load_library(const char *name, const bool try_glibc)
     si->size = ext_sz;
     si->flags = 0;
     si->entry = 0;
-    si->dynamic = (unsigned *)-1;
+    si->dynamic = (GElf_Dyn *)-1;
     if (apkenv_alloc_mem_region(si) < 0)
         goto fail;
 
@@ -1248,8 +1248,8 @@ apkenv_load_library(const char *name, const bool try_glibc)
 
     /* this might not be right. Technically, we don't even need this info
      * once we go through 'apkenv_load_segments'. */
-    hdr = (Elf32_Ehdr *)si->base;
-    si->phdr = (Elf32_Phdr *)((unsigned char *)si->base + hdr->e_phoff);
+    hdr = (GElf_Ehdr *)si->base;
+    si->phdr = (GElf_Phdr *)((unsigned char *)si->base + hdr->e_phoff);
     si->phnum = hdr->e_phnum;
     /**/
 
@@ -1315,7 +1315,7 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc)
         return NULL;
 
     if (!strcmp(bname, "libstdc++.so")) {
-        Elf32_Sym *sym = apkenv_lookup_in_library(si, "__cxa_demangle");
+        GElf_Sym *sym = apkenv_lookup_in_library(si, "__cxa_demangle");
         if (sym && ELF32_ST_BIND(sym->st_info) == STB_GLOBAL && sym->st_shndx != 0)
             wrapper_set_cpp_demangler((void*)(intptr_t)(sym->st_value + si->base));
     }
@@ -1330,7 +1330,6 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc)
 static void apkenv_call_destructors(soinfo *si);
 unsigned apkenv_unload_library(soinfo *si)
 {
-    unsigned *d;
     if (si->refcount == 1) {
         TRACE("%5d unloading '%s'\n", apkenv_pid, si->name);
         apkenv_call_destructors(si);
@@ -1340,7 +1339,7 @@ unsigned apkenv_unload_library(soinfo *si)
          * in apkenv_link_image. This is needed to undo the DT_NEEDED hack below.
          */
         if ((si->gnu_relro_start != 0) && (si->gnu_relro_len != 0)) {
-            Elf32_Addr start = (si->gnu_relro_start & ~PAGE_MASK);
+            GElf_Addr start = (si->gnu_relro_start & ~PAGE_MASK);
             unsigned len = (si->gnu_relro_start - start) + si->gnu_relro_len;
             if (mprotect((void *) start, len, PROT_READ | PROT_WRITE) < 0)
                 DL_ERR("%5d %s: could not undo GNU_RELRO protections. "
@@ -1349,14 +1348,14 @@ unsigned apkenv_unload_library(soinfo *si)
 
         }
 
-        for(d = si->dynamic; *d; d += 2) {
-            if(d[0] == DT_NEEDED){
-                soinfo *lsi = (soinfo *)d[1];
+        for(GElf_Dyn *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+            if(d->d_tag == DT_NEEDED){
+                soinfo *lsi = (soinfo *)d->d_un.d_val;
 
                 // The next line will segfault if the we don't undo the
                 // PT_GNU_RELRO protections (see comments above and in
                 // apkenv_link_image().
-                d[1] = 0;
+                d->d_un.d_val = 0;
 
                 if (apkenv_validate_soinfo(lsi)) {
                     TRACE("%5d %s needs to unload %s\n", apkenv_pid,
@@ -1385,235 +1384,519 @@ unsigned apkenv_unload_library(soinfo *si)
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
 /* TODO: don't use unsigned for addrs below. It works, but is not
- * ideal. They should probably be either uint32_t, Elf32_Addr, or unsigned
+ * ideal. They should probably be either uint32_t, GElf_Addr, or unsigned
  * long.
  */
-static int apkenv_reloc_library(soinfo *si, Elf32_Rel *rel, unsigned count)
+#if defined(USE_RELA)
+static int apkenv_reloc_library(soinfo* si, GElf_Rela *rela, unsigned count)
 {
-    Elf32_Sym *symtab = si->symtab;
-    const char *strtab = si->strtab;
-    Elf32_Sym *s;
-    unsigned base;
-    Elf32_Rel *start = rel;
-    unsigned idx;
+	GElf_Sym* s;
+	GElf_Addr base;
+	GElf_Rela *start = rela; // used for modified debug prints
 
-    for (idx = 0; idx < count; ++idx) {
-        unsigned type = ELF32_R_TYPE(rel->r_info);
-        unsigned sym = ELF32_R_SYM(rel->r_info);
-        unsigned reloc = (unsigned)(rel->r_offset + si->base);
-        unsigned sym_addr = 0;
-        char *sym_name = NULL;
-        char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+	for (size_t idx = 0; idx < count; ++idx, ++rela) {
 
-        DEBUG("%5d Processing '%s' relocation at index %d\n", apkenv_pid,
-              si->name, idx);
-        if(sym != 0) {
-            sym_name = (char *)(strtab + symtab[sym].st_name);
-            memcpy(wrap_sym_name + 7, sym_name, MIN(sizeof(wrap_sym_name) - 7, strlen(sym_name)));
-            sym_addr = 0;
+		unsigned type = GELF_R_TYPE(rela->r_info);
+		// TODO: don't use unsigned for 'sym'. Use uint32_t or ElfW(Addr) instead.
+		unsigned sym = GELF_R_SYM(rela->r_info);
 
-            if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, wrap_sym_name))) {
-               LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, wrap_sym_name, sym_addr);
-            } else if ((s = apkenv__do_lookup(si, sym_name, &base))) {
-                // normal symbol
-            } else if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, sym_name))) {
-               if (strstr(sym_name, "pthread_"))
-                  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
-               LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
-            }
+		GElf_Addr reloc = (GElf_Addr)(rela->r_offset + si->base);
+		GElf_Addr sym_addr = 0;
+		const char* sym_name = NULL;
+		char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
 
-            if (sym_addr != 0) {
+		DEBUG("Processing '%s' relocation at index %zd", si->name, idx);
+
+		if (type == 0) { // R_*_NONE
+			continue;
+		}
+
+		if (sym != 0) {
+			sym_name = (const char *)(si->strtab + si->symtab[sym].st_name);
+
+			memcpy(wrap_sym_name + 7, sym_name, MIN(sizeof(wrap_sym_name) - 7, strlen(sym_name)));
+			sym_addr = 0;
+
+			if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, wrap_sym_name))) {
+			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, wrap_sym_name, sym_addr);
+			} else if ((s = apkenv__do_lookup(si, sym_name, &base))) {
+				// normal symbol
+			} else if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, sym_name))) {
+			   if (strstr(sym_name, "pthread_"))
+				  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
+			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
+			}
+
+			if (sym_addr != 0) {
 #ifdef __GLIBC__
-                Dl_info info;
-                ElfW(Sym) *extra;
-                if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF32_ST_TYPE(extra->st_info) == STT_FUNC))
-                    sym_addr = (unsigned)wrapper_create(sym_name, (void*)sym_addr);
+				Dl_info info;
+				ElfW(Sym) *extra;
+				if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF32_ST_TYPE(extra->st_info) == STT_FUNC))
+					sym_addr = (GElf_Addr)wrapper_create(sym_name, (void*)sym_addr);
 #endif
-            } else if (s == NULL) {
-                /* We only allow an undefined symbol if this is a weak
-                   reference..   */
-                s = &symtab[sym];
-                if (ELF32_ST_BIND(s->st_info) != STB_WEAK) {
-                    DL_ERR("%5d cannot locate '%s'...\n", apkenv_pid, sym_name);
-                    return -1;
-                }
-
-                /* IHI0044C AAELF 4.5.1.1:
-
-                   Libraries are not searched to resolve weak references.
-                   It is not an error for a weak reference to remain
-                   unsatisfied.
-
-                   During linking, the value of an undefined weak reference is:
-                   - Zero if the relocation type is absolute
-                   - The address of the place if the relocation is pc-relative
-                   - The address of nominial base address if the relocation
-                     type is base-relative.
-                  */
-
-                switch (type) {
-#if defined(ANDROID_ARM_LINKER)
-                case R_ARM_JUMP_SLOT:
-                case R_ARM_GLOB_DAT:
-                case R_ARM_ABS32:
-                case R_ARM_RELATIVE:    /* Don't care. */
-                case R_ARM_NONE:        /* Don't care. */
-#elif defined(ANDROID_X86_LINKER)
-                case R_386_JUMP_SLOT:
-                case R_386_GLOB_DAT:
-                case R_386_32:
-                case R_386_RELATIVE:    /* Dont' care. */
-#endif /* ANDROID_*_LINKER */
-                    /* sym_addr was initialized to be zero above or relocation
-                       code below does not care about value of sym_addr.
-                       No need to do anything.  */
-                    break;
-
-#if defined(ANDROID_X86_LINKER)
-                case R_386_PC32:
-                    sym_addr = reloc;
-                    break;
-#endif /* ANDROID_X86_LINKER */
-
-#if defined(ANDROID_ARM_LINKER)
-                case R_ARM_COPY:
-                    /* Fall through.  Can't really copy if weak symbol is
-                       not found in run-time.  */
-#endif /* ANDROID_ARM_LINKER */
-                default:
-                    DL_ERR("%5d unknown weak reloc type %d @ %p (%d)\n",
-                                 apkenv_pid, type, rel, (int) (rel - start));
-                    return -1;
-                }
-            } else {
-                /* We got a definition.  */
-#if 0
-            if((base == 0) && (si->base != 0)){
-                    /* linking from libraries to main image is bad */
-                DL_ERR("%5d cannot locate '%s'...",
-                       apkenv_pid, strtab + symtab[sym].st_name);
-                return -1;
-            }
+			} else if (s == NULL) {
+				// We only allow an undefined symbol if this is a weak reference...
+				s = &si->symtab[sym];
+				if (GELF_ST_BIND(s->st_info) != STB_WEAK) {
+					DL_ERR("cannot locate symbol \"%s\" referenced by \"%s\"...", sym_name, si->name);
+					return -1;
+				}
+				/* IHI0044C AAELF 4.5.1.1:
+					 Libraries are not searched to resolve weak references.
+					 It is not an error for a weak reference to remain unsatisfied.
+					 During linking, the value of an undefined weak reference is:
+					 - Zero if the relocation type is absolute
+					 - The address of the place if the relocation is pc-relative
+					 - The address of nominal base address if the relocation
+					 type is base-relative.
+				 */
+				switch (type) {
+#if defined(__aarch64__)
+				case R_AARCH64_JUMP_SLOT:
+				case R_AARCH64_GLOB_DAT:
+				case R_AARCH64_ABS64:
+				case R_AARCH64_ABS32:
+				case R_AARCH64_ABS16:
+				case R_AARCH64_RELATIVE:
+					/*
+					 * The sym_addr was initialized to be zero above, or the relocation
+					 * code below does not care about value of sym_addr.
+					 * No need to do anything.
+					 */
+					break;
+#elif defined(__x86_64__)
+				case R_X86_64_JUMP_SLOT:
+				case R_X86_64_GLOB_DAT:
+				case R_X86_64_32:
+				case R_X86_64_64:
+				case R_X86_64_RELATIVE:
+					// No need to do anything.
+					break;
+				case R_X86_64_PC32:
+					sym_addr = reloc;
+					break;
 #endif
-                sym_addr = (unsigned)(s->st_value + base);
-                LINKER_DEBUG_PRINTF("%s symbol (from %s) %s to %x\n", si->name, apkenv_last_library_used, sym_name, sym_addr);
-                if(ELF32_ST_TYPE(s->st_info) == STT_FUNC) {
-                    sym_addr = (unsigned)wrapper_create(sym_name, (void*)sym_addr);
-                }
+				default:
+					DL_ERR("unknown weak reloc type %d @ %p (%zu)", type, rela, idx);
+					return -1;
+				}
+			} else {
+				/* We got a definition.  */
+				sym_addr = (GElf_Addr)(s->st_value + base);
+				LINKER_DEBUG_PRINTF("%s symbol (from %s) %s to %x\n", si->name, apkenv_last_library_used, sym_name, sym_addr);
+				if(GELF_ST_TYPE(s->st_info) == STT_FUNC) {
+					sym_addr = (GElf_Addr)wrapper_create(sym_name, (void*)sym_addr);
+				}
 
-    }
-            COUNT_RELOC(RELOC_SYMBOL);
-        } else {
-            s = NULL;
-        }
+			}
+			COUNT_RELOC(RELOC_SYMBOL);
+		} else {
+			s = NULL;
+		}
+		switch (type) {
+#if defined(__aarch64__)
+		case R_AARCH64_JUMP_SLOT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO JMP_SLOT %16llx <- %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), sym_name);
+			*((GElf_Addr*)reloc) = (sym_addr + rela->r_addend);
+			break;
+		case R_AARCH64_GLOB_DAT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO GLOB_DAT %16llx <- %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), sym_name);
+			*((GElf_Addr*)reloc) = (sym_addr + rela->r_addend);
+			break;
+		case R_AARCH64_ABS64:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO ABS64 %16llx <- %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), sym_name);
+			*((GElf_Addr*)reloc) += (sym_addr + rela->r_addend);
+			break;
+		case R_AARCH64_ABS32:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO ABS32 %16llx <- %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), sym_name);
+			if (((GElf_Addr)(INT32_MIN) <= (*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend))) &&
+					((*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend)) <= (GElf_Addr)(UINT32_MAX))) {
+					*((GElf_Addr*)reloc) += (sym_addr + rela->r_addend);
+			} else {
+					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+								 (*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend)),
+								 (GElf_Addr)(INT32_MIN),
+								 (GElf_Addr)(UINT32_MAX));
+					return -1;
+			}
+			break;
+		case R_AARCH64_ABS16:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO ABS16 %16llx <- %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), sym_name);
+			if (((GElf_Addr)(INT16_MIN) <= (*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend))) &&
+					((*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend)) <= (GElf_Addr)(UINT16_MAX))) {
+					*((GElf_Addr*)reloc) += (sym_addr + rela->r_addend);
+			} else {
+					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+								 (*((GElf_Addr*)reloc) + (sym_addr + rela->r_addend)),
+								 (GElf_Addr)(INT16_MIN),
+								 (GElf_Addr)(UINT16_MAX));
+					return -1;
+			}
+			break;
+		case R_AARCH64_PREL64:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO REL64 %16llx <- %16llx - %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			*((GElf_Addr*)reloc) += (sym_addr + rela->r_addend) - rela->r_offset;
+			break;
+		case R_AARCH64_PREL32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO REL32 %16llx <- %16llx - %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			if (((GElf_Addr)(INT32_MIN) <= (*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
+					((*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (GElf_Addr)(UINT32_MAX))) {
+					*((GElf_Addr*)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
+			} else {
+					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+								 (*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
+								 (GElf_Addr)(INT32_MIN),
+								 (GElf_Addr)(UINT32_MAX));
+					return -1;
+			}
+			break;
+		case R_AARCH64_PREL16:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO REL16 %16llx <- %16llx - %16llx %s\n",
+								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			if (((GElf_Addr)(INT16_MIN) <= (*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
+					((*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (GElf_Addr)(UINT16_MAX))) {
+					*((GElf_Addr*)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
+			} else {
+					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+								 (*((GElf_Addr*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
+								 (GElf_Addr)(INT16_MIN),
+								 (GElf_Addr)(UINT16_MAX));
+					return -1;
+			}
+			break;
+		case R_AARCH64_RELATIVE:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			if (sym) {
+				DL_ERR("odd RELATIVE form...");
+				return -1;
+			}
+			TRACE_TYPE(RELO, "RELO RELATIVE %16llx <- %16llx\n",
+								 reloc, (si->base + rela->r_addend));
+			*((GElf_Addr*)reloc) = (si->base + rela->r_addend);
+			break;
+		case R_AARCH64_COPY:
+			/*
+			 * ET_EXEC is not supported so this should not happen.
+			 *
+			 * http://infocenter.arm.com/help/topic/com.arm.doc.ihi0044d/IHI0044D_aaelf.pdf
+			 *
+			 * Section 4.7.1.10 "Dynamic relocations"
+			 * R_AARCH64_COPY may only appear in executable objects where e_type is
+			 * set to ET_EXEC.
+			 */
+			DL_ERR("%s R_AARCH64_COPY relocations are not supported", si->name);
+			return -1;
+		case R_AARCH64_TLS_TPREL64:
+			TRACE_TYPE(RELO, "RELO TLS_TPREL64 *** %16llx <- %16llx - %16llx\n",
+								 reloc, (sym_addr + rela->r_addend), rela->r_offset);
+			break;
+		case R_AARCH64_TLS_DTPREL32:
+			TRACE_TYPE(RELO, "RELO TLS_DTPREL32 *** %16llx <- %16llx - %16llx\n",
+								 reloc, (sym_addr + rela->r_addend), rela->r_offset);
+			break;
+#elif defined(__x86_64__)
+		case R_X86_64_JUMP_SLOT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO JMP_SLOT %08zx <- %08zx %s", (size_t)(reloc),
+								 (size_t)(sym_addr + rela->r_addend), sym_name);
+			*((GElf_Addr*)reloc) = sym_addr + rela->r_addend;
+			break;
+		case R_X86_64_GLOB_DAT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rela->r_offset);
+
+			TRACE_TYPE(RELO, "RELO GLOB_DAT %08zx <- %08zx %s", (size_t)(reloc),
+
+								 (size_t)(sym_addr + rela->r_addend), sym_name);
+			*((GElf_Addr*)reloc) = sym_addr + rela->r_addend;
+			break;
+		case R_X86_64_RELATIVE:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			if (sym) {
+				DL_ERR("odd RELATIVE form...");
+				return -1;
+			}
+			TRACE_TYPE(RELO, "RELO RELATIVE %08zx <- +%08zx", (size_t)(reloc),
+								 (size_t)(si->base));
+			*((GElf_Addr*)reloc) = si->base + rela->r_addend;
+			break;
+		case R_X86_64_32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO R_X86_64_32 %08zx <- +%08zx %s", (size_t)(reloc),
+								 (size_t)(sym_addr), sym_name);
+			*((GElf_Addr*)reloc) = sym_addr + rela->r_addend;
+			break;
+		case R_X86_64_64:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO R_X86_64_64 %08zx <- +%08zx %s", (size_t)(reloc),
+								 (size_t)(sym_addr), sym_name);
+			*((GElf_Addr*)reloc) = sym_addr + rela->r_addend;
+			break;
+		case R_X86_64_PC32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rela->r_offset);
+			TRACE_TYPE(RELO, "RELO R_X86_64_PC32 %08zx <- +%08zx (%08zx - %08zx) %s",
+								 (size_t)(reloc), (size_t)(sym_addr - reloc),
+								 (size_t)(sym_addr), (size_t)(reloc), sym_name);
+			*((GElf_Addr*)reloc) = sym_addr + rela->r_addend - reloc;
+			break;
+#endif
+		default:
+			DL_ERR("unknown reloc type %d @ %p (%zu)", type, rela, idx);
+			return -1;
+		}
+	}
+	return 0;
+}
+#else // REL, not RELA.
+static int apkenv_reloc_library(soinfo *si, GElf_Rel *rel, unsigned count)
+{
+	GElf_Sym *symtab = si->symtab;
+	const char *strtab = si->strtab;
+
+	GElf_Sym *s;
+	GElf_Addr base;
+	GElf_Rel *start = rel;
+
+	for (size_t idx = 0; idx < count; ++idx, ++rel) {
+
+		unsigned type = GELF_R_TYPE(rel->r_info);
+		// TODO: don't use unsigned for 'sym'. Use uint32_t or ElfW(Addr) instead.
+		unsigned sym = GELF_R_SYM(rel->r_info);
+
+		GElf_Addr reloc = (GElf_Addr)(rel->r_offset + si->base);
+		GElf_Addr sym_addr = 0;
+		char *sym_name = NULL;
+		char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+
+		DEBUG("%5d Processing '%s' relocation at index %d\n", apkenv_pid, si->name, idx);
+
+// TODO: should we have this?
+//		if (type == 0) { // R_*_NONE
+//			continue;
+//		}
+		if (sym != 0) {
+			sym_name = (const char *)(si->strtab + si->symtab[sym].st_name);
+
+			memcpy(wrap_sym_name + 7, sym_name, MIN(sizeof(wrap_sym_name) - 7, strlen(sym_name)));
+			sym_addr = 0;
+
+			if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, wrap_sym_name))) {
+			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, wrap_sym_name, sym_addr);
+			} else if ((s = apkenv__do_lookup(si, sym_name, &base))) {
+				// normal symbol
+			} else if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, sym_name))) {
+			   if (strstr(sym_name, "pthread_"))
+				  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
+			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
+			}
+
+			if (sym_addr != 0) {
+#ifdef __GLIBC__
+				Dl_info info;
+				ElfW(Sym) *extra;
+				if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF32_ST_TYPE(extra->st_info) == STT_FUNC))
+					sym_addr = (GElf_Addr)wrapper_create(sym_name, (void*)sym_addr);
+#endif
+			} else if (s == NULL) {
+				/* We only allow an undefined symbol if this is a weak
+				   reference..   */
+				s = &si->symtab[sym];
+				if (GELF_ST_BIND(s->st_info) != STB_WEAK) {
+					DL_ERR("%5d cannot locate '%s'...\n", apkenv_pid, sym_name);
+					return -1;
+				}
+				/* IHI0044C AAELF 4.5.1.1:
+					 Libraries are not searched to resolve weak references.
+					 It is not an error for a weak reference to remain unsatisfied.
+					 During linking, the value of an undefined weak reference is:
+					 - Zero if the relocation type is absolute
+					 - The address of the place if the relocation is pc-relative
+					 - The address of nominal base address if the relocation
+					 type is base-relative.
+				 */
+				switch (type) {
+#if defined(__arm__)
+				case R_ARM_JUMP_SLOT:
+				case R_ARM_GLOB_DAT:
+				case R_ARM_ABS32:
+				case R_ARM_RELATIVE:	/* Don't care. */
+				case R_ARM_NONE:		/* Don't care. */
+					break;
+#elif defined(__i386__)
+				case R_386_JUMP_SLOT:
+				case R_386_GLOB_DAT:
+				case R_386_32:
+				case R_386_RELATIVE:	/* Dont' care. */
+					/* sym_addr was initialized to be zero above or relocation
+					   code below does not care about value of sym_addr.
+					   No need to do anything.  */
+					break;
+				case R_386_PC32:
+					sym_addr = reloc;
+					break;
+#endif
+#if defined(__arm__)
+				case R_ARM_COPY:
+					/* Fall through.  Can't really copy if weak symbol is
+					   not found in run-time.  */
+#endif
+				default:
+					DL_ERR("%5d unknown weak reloc type %d @ %p (%d)\n",
+								 apkenv_pid, type, rel, (int) (rel - start));
+					return -1;
+				}
+			} else {
+				/* We got a definition.  */
+				sym_addr = (GElf_Addr)(s->st_value + base);
+				LINKER_DEBUG_PRINTF("%s symbol (from %s) %s to %x\n", si->name, apkenv_last_library_used, sym_name, sym_addr);
+				if(GELF_ST_TYPE(s->st_info) == STT_FUNC) {
+					sym_addr = (GElf_Addr)wrapper_create(sym_name, (void*)sym_addr);
+				}
+
+			}
+			COUNT_RELOC(RELOC_SYMBOL);
+		} else {
+			s = NULL;
+		}
 
 /* TODO: This is ugly. Split up the relocations by arch into
  * different files.
  */
-        switch(type){
-#if defined(ANDROID_ARM_LINKER)
-        case R_ARM_JUMP_SLOT:
-            COUNT_RELOC(RELOC_ABSOLUTE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %08x <- %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned*)reloc) = sym_addr;
-            break;
-        case R_ARM_GLOB_DAT:
-            COUNT_RELOC(RELOC_ABSOLUTE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %08x <- %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned*)reloc) = sym_addr;
-            break;
-        case R_ARM_ABS32:
-            COUNT_RELOC(RELOC_ABSOLUTE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO ABS %08x <- %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned*)reloc) += sym_addr;
-            break;
-        case R_ARM_REL32:
-            COUNT_RELOC(RELOC_RELATIVE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO REL32 %08x <- %08x - %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, rel->r_offset, sym_name);
-            *((unsigned*)reloc) += sym_addr - rel->r_offset;
-            break;
-#elif defined(ANDROID_X86_LINKER)
-        case R_386_JUMP_SLOT:
-            COUNT_RELOC(RELOC_ABSOLUTE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %08x <- %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned*)reloc) = sym_addr;
-            break;
-        case R_386_GLOB_DAT:
-            COUNT_RELOC(RELOC_ABSOLUTE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %08x <- %08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned*)reloc) = sym_addr;
-            break;
-#endif /* ANDROID_*_LINKER */
+		switch (type) {
+#if defined(__arm__)
+		case R_ARM_JUMP_SLOT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %08x <- %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
+			*((GElf_Addr*)reloc) = sym_addr;
+			break;
+		case R_ARM_GLOB_DAT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rel->r_offset);
 
-#if defined(ANDROID_ARM_LINKER)
-        case R_ARM_RELATIVE:
-#elif defined(ANDROID_X86_LINKER)
-        case R_386_RELATIVE:
-#endif /* ANDROID_*_LINKER */
-            COUNT_RELOC(RELOC_RELATIVE);
-            MARK(rel->r_offset);
-            if(sym){
-                DL_ERR("%5d odd RELATIVE form...", apkenv_pid);
-                return -1;
-            }
-            TRACE_TYPE(RELO, "%5d RELO RELATIVE %08x <- +%08x\n", apkenv_pid,
-                       reloc, si->base);
-            *((unsigned*)reloc) += si->base;
-            break;
+			TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %08x <- %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
 
-#if defined(ANDROID_X86_LINKER)
-        case R_386_32:
-            COUNT_RELOC(RELOC_RELATIVE);
-            MARK(rel->r_offset);
+			*((GElf_Addr*)reloc) = sym_addr;
+			break;
+		case R_ARM_ABS32:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO ABS %08x <- %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
+			*((GElf_Addr*)reloc) += sym_addr;
+			break;
+		case R_ARM_REL32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO REL32 %08x <- %08x - %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, rel->r_offset, sym_name);
+			*((GElf_Addr*)reloc) += sym_addr - rel->r_offset;
+			break;
+#elif defined(__x86__)
+		case R_386_JUMP_SLOT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %08x <- %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
+			*((GElf_Addr*)reloc) = sym_addr;
+			break;
+		case R_386_GLOB_DAT:
+			COUNT_RELOC(RELOC_ABSOLUTE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %08x <- %08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
+			*((GElf_Addr*)reloc) = sym_addr;
+			break;
+#endif
 
-            TRACE_TYPE(RELO, "%5d RELO R_386_32 %08x <- +%08x %s\n", apkenv_pid,
-                       reloc, sym_addr, sym_name);
-            *((unsigned *)reloc) += (unsigned)sym_addr;
-            break;
+#if defined(__arm__)
+		case R_ARM_RELATIVE:
+#elif defined(__x86__)
+		case R_386_RELATIVE:
+#endif
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rel->r_offset);
+			if(sym){
+				DL_ERR("%5d odd RELATIVE form...", apkenv_pid);
+				return -1;
+			}
+			TRACE_TYPE(RELO, "%5d RELO RELATIVE %08x <- +%08x\n", apkenv_pid,
+					   reloc, si->base);
+			*((GElf_Addr*)reloc) += si->base;
+			break;
 
-        case R_386_PC32:
-            COUNT_RELOC(RELOC_RELATIVE);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO R_386_PC32 %08x <- "
-                       "+%08x (%08x - %08x) %s\n", apkenv_pid, reloc,
-                       (sym_addr - reloc), sym_addr, reloc, sym_name);
-            *((unsigned *)reloc) += (unsigned)(sym_addr - reloc);
-            break;
-#endif /* ANDROID_X86_LINKER */
+#if defined(__x86__)
+		case R_386_32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rel->r_offset);
 
-#ifdef ANDROID_ARM_LINKER
-        case R_ARM_COPY:
-            COUNT_RELOC(RELOC_COPY);
-            MARK(rel->r_offset);
-            TRACE_TYPE(RELO, "%5d RELO %08x <- %d @ %08x %s\n", apkenv_pid,
-                       reloc, s->st_size, sym_addr, sym_name);
-            memcpy((void*)reloc, (void*)sym_addr, s->st_size);
-            break;
-        case R_ARM_NONE:
-            break;
-#endif /* ANDROID_ARM_LINKER */
+			TRACE_TYPE(RELO, "%5d RELO R_386_32 %08x <- +%08x %s\n", apkenv_pid,
+					   reloc, sym_addr, sym_name);
+			*((GElf_Addr*)reloc) += (unsigned)sym_addr;
+			break;
 
-        default:
-            DL_ERR("%5d unknown reloc type %d @ %p (%d)",
-                  apkenv_pid, type, rel, (int) (rel - start));
-            return -1;
-        }
-        rel++;
-    }
-    return 0;
+		case R_386_PC32:
+			COUNT_RELOC(RELOC_RELATIVE);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO R_386_PC32 %08x <- "
+					   "+%08x (%08x - %08x) %s\n", apkenv_pid, reloc,
+					   (sym_addr - reloc), sym_addr, reloc, sym_name);
+			*((GElf_Addr*)reloc) += (unsigned)(sym_addr - reloc);
+			break;
+#endif
+
+#ifdef __arm__
+		case R_ARM_COPY:
+			COUNT_RELOC(RELOC_COPY);
+			MARK(rel->r_offset);
+			TRACE_TYPE(RELO, "%5d RELO %08x <- %d @ %08x %s\n", apkenv_pid,
+					   reloc, s->st_size, sym_addr, sym_name);
+			memcpy((void*)reloc, (void*)sym_addr, s->st_size);
+			break;
+		case R_ARM_NONE:
+			break;
+#endif
+
+		default:
+			DL_ERR("%5d unknown reloc type %d @ %p (%d)",
+				  apkenv_pid, type, rel, (int) (rel - start));
+			return -1;
+		}
+	}
+	return 0;
 }
+#endif
 
 /* Please read the "Initialization and Termination functions" functions.
  * of the linker design note in bionic/linker/README.TXT to understand
@@ -1677,10 +1960,9 @@ void apkenv_call_constructors_recursive(soinfo *si)
     TRACE("[ %5d Done calling preinit_array for '%s' ]\n", apkenv_pid, si->name);
 
     if (si->dynamic) {
-        unsigned *d;
-        for(d = si->dynamic; *d; d += 2) {
-            if(d[0] == DT_NEEDED){
-                soinfo* lsi = (soinfo *)d[1];
+        for(GElf_Dyn *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+            if(d->d_tag == DT_NEEDED){
+                soinfo* lsi = (soinfo *)d->d_un.d_val;
                 if (!apkenv_validate_soinfo(lsi)) {
                     DL_ERR("%5d bad DT_NEEDED pointer in %s",
                            apkenv_pid, si->name);
@@ -1857,7 +2139,7 @@ static void apkenv_wrap_function(void *sym_addr, char *sym_name, int is_thumb, s
 /* Franz-Josef Haider apkenv_create_latehook_wrappers */
 static void apkenv_create_latehook_wrappers(soinfo *si)
 {
-    Elf32_Sym *s;
+    GElf_Sym *s;
 
     unsigned int n = 0;
     for(n=0;n<si->nchain;n++)
@@ -1885,8 +2167,7 @@ static void apkenv_create_latehook_wrappers(soinfo *si)
 
 static int apkenv_link_image(soinfo *si, unsigned wr_offset)
 {
-    unsigned *d;
-    Elf32_Phdr *phdr = si->phdr;
+    GElf_Phdr *phdr = si->phdr;
     int phnum = si->phnum;
 
     INFO("[ %5d linking %s ]\n", apkenv_pid, si->name);
@@ -1904,7 +2185,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
          */
         si->size = 0;
         for(; phnum > 0; --phnum, ++phdr) {
-#ifdef ANDROID_ARM_LINKER
+#if defined(__arm__)
             if(phdr->p_type == PT_ARM_EXIDX) {
                 /* exidx entries (used for stack unwinding) are 8 bytes each.
                  */
@@ -1951,7 +2232,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
                              PFLAGS_TO_PROT(phdr->p_flags) | PROT_WRITE);
                 }
             } else if (phdr->p_type == PT_DYNAMIC) {
-                if (si->dynamic != (unsigned *)-1) {
+                if (si->dynamic != (GElf_Dyn *)-1) {
                     DL_ERR("%5d multiple PT_DYNAMIC segments found in '%s'. "
                           "Segment at 0x%08x, previously one found at 0x%08x",
                           apkenv_pid, si->name, si->base + phdr->p_vaddr,
@@ -1959,7 +2240,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
                     goto fail;
                 }
                 DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
-                si->dynamic = (unsigned *) (si->base + phdr->p_vaddr);
+                si->dynamic = (GElf_Dyn *) (si->base + phdr->p_vaddr);
             } else if (phdr->p_type == PT_GNU_RELRO) {
                 if ((phdr->p_vaddr >= si->size)
                         || ((phdr->p_vaddr + phdr->p_memsz) > si->size)
@@ -1969,13 +2250,13 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
                            phdr->p_vaddr, phdr->p_memsz);
                     goto fail;
                 }
-                si->gnu_relro_start = (Elf32_Addr) (si->base + phdr->p_vaddr);
+                si->gnu_relro_start = (GElf_Addr) (si->base + phdr->p_vaddr);
                 si->gnu_relro_len = (unsigned) phdr->p_memsz;
             }
         }
     }
 
-    if (si->dynamic == (unsigned *)-1) {
+    if (si->dynamic == (GElf_Dyn *)-1) {
         DL_ERR("%5d missing PT_DYNAMIC?!", apkenv_pid);
         goto fail;
     }
@@ -1983,83 +2264,108 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
     DEBUG("%5d dynamic = %p\n", apkenv_pid, si->dynamic);
 
     /* extract useful information from dynamic section */
-    for(d = si->dynamic; *d; d++){
-        DEBUG("%5d d = %p, d[0] = 0x%08x d[1] = 0x%08x\n", apkenv_pid, d, d[0], d[1]);
-        switch(*d++){
+    for(GElf_Dyn *d = si->dynamic; d->d_tag != DT_NULL; d++){
+        DEBUG("%5d d = %p, d->d_tag = 0x%08x d->d_un.d_val = 0x%08x\n", apkenv_pid, d, d->d_tag, d->d_un.d_val);
+        switch(d->d_tag){
         case DT_HASH:
-            si->nbucket = ((unsigned *) (si->base + *d))[0];
-            si->nchain = ((unsigned *) (si->base + *d))[1];
-            si->bucket = (unsigned *) (si->base + *d + 8);
-            si->chain = (unsigned *) (si->base + *d + 8 + si->nbucket * 4);
+            si->nbucket = ((uint32_t *) (si->base + d->d_un.d_ptr))[0];
+            si->nchain = ((uint32_t *) (si->base + d->d_un.d_ptr))[1];
+            si->bucket = (uint32_t *) (si->base + d->d_un.d_ptr + 8);
+            si->chain = (uint32_t *) (si->base + d->d_un.d_ptr + 8 + si->nbucket * 4);
             break;
         case DT_STRTAB:
-            si->strtab = (const char *) (si->base + *d);
+            si->strtab = (const char *) (si->base + d->d_un.d_ptr);
             break;
         case DT_SYMTAB:
-            si->symtab = (Elf32_Sym *) (si->base + *d);
+            si->symtab = (GElf_Sym *) (si->base + d->d_un.d_ptr);
             break;
+#if !defined(__LP64__)
         case DT_PLTREL:
-            if(*d != DT_REL) {
+            if(d->d_un.d_val != DT_REL) {
                 DL_ERR("DT_RELA not supported");
                 goto fail;
             }
             break;
+#endif
         case DT_JMPREL:
-            si->plt_rel = (Elf32_Rel*) (si->base + *d);
-            break;
+#if defined(USE_RELA)
+            si->plt_rela = (GElf_Rela *)(si->base + d->d_un.d_ptr);
+#else
+            si->plt_rel = (GElf_Rel *)(si->base + d->d_un.d_ptr);
+#endif
+			break;
         case DT_PLTRELSZ:
-            si->plt_rel_count = *d / 8;
-            break;
-        case DT_REL:
-            si->rel = (Elf32_Rel*) (si->base + *d);
-            break;
-        case DT_RELSZ:
-            si->rel_count = *d / 8;
+#if defined(USE_RELA)
+            si->plt_rela_count = d->d_un.d_val / sizeof(GElf_Rela);
+#else
+            si->plt_rel_count = d->d_un.d_val / sizeof(GElf_Rel);
+#endif
             break;
         case DT_PLTGOT:
             /* Save this in case we decide to do lazy binding. We don't yet. */
-            si->plt_got = (unsigned *)(si->base + *d);
+            si->plt_got = (GElf_Addr **)(si->base + d->d_un.d_ptr);
             break;
         case DT_DEBUG:
             // Set the DT_DEBUG entry to the addres of _r_debug for GDB
-            *d = (int) _r_debug_ptr;
+            d->d_un.d_val = (uintptr_t)_r_debug_ptr;
+            break;
+#if defined(USE_RELA)
+         case DT_RELA:
+            si->rela = (GElf_Rela*)(si->base + d->d_un.d_ptr);
+            break;
+         case DT_RELASZ:
+            si->rela_count = d->d_un.d_val / sizeof(GElf_Rela);
+            break;
+        case DT_REL:
+            DL_ERR("unsupported DT_REL in \"%s\"", si->name);
+            return false;
+        case DT_RELSZ:
+            DL_ERR("unsupported DT_RELSZ in \"%s\"", si->name);
+            return false;
+#else
+        case DT_REL:
+            si->rel = (GElf_Rel*)(si->base + d->d_un.d_ptr);
+            break;
+        case DT_RELSZ:
+            si->rel_count = d->d_un.d_val / sizeof(GElf_Rel);
             break;
          case DT_RELA:
-            DL_ERR("%5d DT_RELA not supported", apkenv_pid);
-            goto fail;
+            DL_ERR("unsupported DT_RELA in \"%s\"", si->name);
+            return false;
+#endif
         case DT_INIT:
-            si->init_func = (void (*)(void))(si->base + *d);
+            si->init_func = (void (*)(void))(si->base + d->d_un.d_ptr);
             DEBUG("%5d %s constructors (init func) found at %p\n",
                   apkenv_pid, si->name, si->init_func);
             break;
         case DT_FINI:
-            si->fini_func = (void (*)(void))(si->base + *d);
+            si->fini_func = (void (*)(void))(si->base + d->d_un.d_ptr);
             DEBUG("%5d %s destructors (fini func) found at %p\n",
                   apkenv_pid, si->name, si->fini_func);
             break;
         case DT_INIT_ARRAY:
-            si->init_array = (unsigned *)(si->base + *d);
+            si->init_array = (uint32_t *)(si->base + d->d_un.d_ptr); // why 32
             DEBUG("%5d %s constructors (init_array) found at %p\n",
                   apkenv_pid, si->name, si->init_array);
             break;
         case DT_INIT_ARRAYSZ:
-            si->init_array_count = ((unsigned)*d) / sizeof(Elf32_Addr);
+            si->init_array_count = ((uint32_t)d->d_un.d_val) / sizeof(GElf_Addr); // why 32
             break;
         case DT_FINI_ARRAY:
-            si->fini_array = (unsigned *)(si->base + *d);
+            si->fini_array = (uint32_t *)(si->base + d->d_un.d_ptr); // why 32
             DEBUG("%5d %s destructors (fini_array) found at %p\n",
                   apkenv_pid, si->name, si->fini_array);
             break;
         case DT_FINI_ARRAYSZ:
-            si->fini_array_count = ((unsigned)*d) / sizeof(Elf32_Addr);
+            si->fini_array_count = ((uint32_t)d->d_un.d_val) / sizeof(GElf_Addr); // why 32
             break;
         case DT_PREINIT_ARRAY:
-            si->preinit_array = (unsigned *)(si->base + *d);
+            si->preinit_array = (uint32_t *)(si->base + d->d_un.d_ptr); // why 32
             DEBUG("%5d %s constructors (preinit_array) found at %p\n",
                   apkenv_pid, si->name, si->preinit_array);
             break;
         case DT_PREINIT_ARRAYSZ:
-            si->preinit_array_count = ((unsigned)*d) / sizeof(Elf32_Addr);
+            si->preinit_array_count = ((uint32_t)d->d_un.d_val) / sizeof(GElf_Addr); // why 32
             break;
         case DT_TEXTREL:
             /* TODO: make use of this. */
@@ -2098,12 +2404,12 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
         }
     }
 
-    for(d = si->dynamic; *d; d += 2) {
-        if(d[0] == DT_NEEDED){
-            DEBUG("%5d %s needs %s\n", apkenv_pid, si->name, si->strtab + d[1]);
+    for(GElf_Dyn *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+        if(d->d_tag == DT_NEEDED){
+            DEBUG("%5d %s needs %s\n", apkenv_pid, si->name, si->strtab + d->d_un.d_val);
             soinfo *lsi = NULL;
-            // if (get_builtin_lib_handle(si->strtab + d[1]) == NULL)
-            lsi = apkenv_find_library(si->strtab + d[1], true);
+            // if (get_builtin_lib_handle(si->strtab + d->d_un.d_val) == NULL)
+            lsi = apkenv_find_library(si->strtab + d->d_un.d_val, true);
             if(lsi == 0) {
                 /**
                  * XXX Dirty Hack Alarm --thp XXX
@@ -2115,7 +2421,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
                 lsi = &apkenv_libdl_info;
                 //apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
                 //DL_ERR("%5d could not load needed library '%s' for '%s' (%s)",
-                //       apkenv_pid, si->strtab + d[1], si->name, apkenv_tmp_err_buf);
+                //       apkenv_pid, si->strtab + d->d_un.d_val, si->name, apkenv_tmp_err_buf);
                 //continue;
                 //goto fail;
             }
@@ -2126,11 +2432,24 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
                later on when we resolve relocations, trying to look up a symbol
                with dlsym().
             */
-            d[1] = (intptr_t)lsi;
+            d->d_un.d_val = (intptr_t)lsi;
             lsi->refcount++;
         }
     }
 
+#if defined(USE_RELA)
+    if (si->plt_rela != NULL) {
+        DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name );
+        if (apkenv_reloc_library(si, si->plt_rela, si->plt_rela_count))
+            goto fail;
+	}
+
+    if (si->rela != NULL) {
+        DEBUG("[ %5d relocating %s ]\n", apkenv_pid, si->name );
+        if (apkenv_reloc_library(si, si->rela, si->rela_count))
+            goto fail;
+    }
+#else
     if(si->plt_rel) {
         DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name );
         if(apkenv_reloc_library(si, si->plt_rel, si->plt_rel_count))
@@ -2141,6 +2460,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
         if(apkenv_reloc_library(si, si->rel, si->rel_count))
             goto fail;
     }
+#endif
 
     apkenv_create_latehook_wrappers(si);
 
@@ -2174,7 +2494,7 @@ static int apkenv_link_image(soinfo *si, unsigned wr_offset)
 #endif
 
     if (si->gnu_relro_start != 0 && si->gnu_relro_len != 0) {
-        Elf32_Addr start = (si->gnu_relro_start & ~PAGE_MASK);
+        GElf_Addr start = (si->gnu_relro_start & ~PAGE_MASK);
         unsigned len = (si->gnu_relro_start - start) + si->gnu_relro_len;
         if (mprotect((void *)(intptr_t)start, len, PROT_READ) < 0) {
             DL_ERR("%5d GNU_RELRO mprotect of library '%s' failed: %d (%s)\n",
@@ -2223,6 +2543,8 @@ void dl_parse_library_path(const char *path, char *delim)
     }
 }
 
+// this seems useless, and it's not ever called either
+#if 0
 static void apkenv_parse_apkenv_preloads(const char *path, char *delim)
 {
     size_t len;
@@ -2252,6 +2574,7 @@ static void apkenv_parse_apkenv_preloads(const char *path, char *delim)
  * fixed it's own GOT. It is safe to make references to externs
  * and other non-local data at this point.
  */
+
 static unsigned apkenv___linker_init_post_relocation(unsigned **elfdata)
 {
     static soinfo linker_soinfo;
@@ -2362,7 +2685,7 @@ sanitize:
     while(vecs[0] != 0){
         switch(vecs[0]){
         case AT_PHDR:
-            si->phdr = (Elf32_Phdr*)(intptr_t)vecs[1];
+            si->phdr = (GElf_Phdr*)(intptr_t)vecs[1];
             break;
         case AT_PHNUM:
             si->phnum = (int) vecs[1];
@@ -2382,11 +2705,11 @@ sanitize:
     si->base = 0;
     for ( nn = 0; nn < si->phnum; nn++ ) {
         if (si->phdr[nn].p_type == PT_PHDR) {
-            si->base = (Elf32_Addr)(intptr_t)si->phdr - si->phdr[nn].p_vaddr;
+            si->base = (GElf_Addr)(intptr_t)si->phdr - si->phdr[nn].p_vaddr;
             break;
         }
     }
-    si->dynamic = (unsigned *)-1;
+    si->dynamic = (GElf_Dyn *)-1;
     si->wrprotect_start = 0xffffffff;
     si->wrprotect_end = 0;
     si->refcount = 1;
@@ -2439,7 +2762,11 @@ sanitize:
         for(n = 0; n < 4096; n++){
             if(apkenv_bitmask[n]){
                 unsigned x = apkenv_bitmask[n];
-                for(i = 0; i < 8; i++){
+#if defined(__LP64__)
+                for (i = 0; i < 32; i++) {
+#else
+                for (i = 0; i < 8; i++) {
+#endif
                     if(x & 1) count++;
                     x >>= 1;
                 }
@@ -2494,15 +2821,15 @@ static unsigned apkenv_find_linker_base(unsigned **elfdata) {
  */
 unsigned apkenv___linker_init(unsigned **elfdata) {
     unsigned linker_addr = apkenv_find_linker_base(elfdata);
-    Elf32_Ehdr *elf_hdr = (Elf32_Ehdr *)(intptr_t)linker_addr;
-    Elf32_Phdr *phdr =
-        (Elf32_Phdr *)((unsigned char *)(intptr_t)linker_addr + elf_hdr->e_phoff);
+    GElf_Ehdr *elf_hdr = (GElf_Ehdr *)(intptr_t)linker_addr;
+    GElf_Phdr *phdr =
+        (GElf_Phdr *)((unsigned char *)(intptr_t)linker_addr + elf_hdr->e_phoff);
 
     soinfo linker_so;
     memset(&linker_so, 0, sizeof(soinfo));
 
     linker_so.base = linker_addr;
-    linker_so.dynamic = (unsigned *) -1;
+    linker_so.dynamic = (GElf_Dyn *) -1;
     linker_so.phdr = phdr;
     linker_so.phnum = elf_hdr->e_phnum;
     linker_so.flags |= FLAG_LINKER;
@@ -2524,3 +2851,4 @@ unsigned apkenv___linker_init(unsigned **elfdata) {
     // the main part of the linker now.
     return apkenv___linker_init_post_relocation(elfdata);
 }
+#endif

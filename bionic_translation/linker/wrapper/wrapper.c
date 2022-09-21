@@ -31,7 +31,7 @@ verbose_log(const char *fmt, ...)
 }
 
 #ifdef VERBOSE_FUNCTIONS
-#  ifdef ANDROID_X86_LINKER
+#  if defined(__i386__)
 __asm__(
    "wrapper_start: nop\n"
    "wrapper_store: push %edi\npush %esp\npush %ebp\npush %ebx\npush %eax\npush %ecx\npush %edx\n"
@@ -121,7 +121,7 @@ wrapper_create(const char *const symbol, void *function)
    unsigned char *fun = mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
    assert(fun != MAP_FAILED);
    memcpy(fun, &wrapper_start, sz);
-#ifdef ANDROID_X86_LINKER
+#ifdef __i386__
    memcpy(fun + (&wrapper_symbol - &wrapper_start) + 1, &copy, sizeof(copy));
    {
       const unsigned char *from = fun + (&wrapper_restore - &wrapper_start);
