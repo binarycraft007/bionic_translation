@@ -57,7 +57,7 @@
 
 #include "strlcpy.h"
 
-#include "wrapper/wrapper.h"
+#include "../wrapper/wrapper.h"
 
 #include "linker.h"
 #include "linker_debug.h"

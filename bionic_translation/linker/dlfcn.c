@@ -24,8 +24,8 @@
 #include "linker.h"
 #include "linker_format.h"
 
-#include "wrapper/wrapper.h"
-#include "wrapper/verbose.h"
+#include "../wrapper/wrapper.h"
+#include "../wrapper/verbose.h"
 #include "linker_debug.h"
 
 #include "dlfcn.h"
@@ -82,7 +82,7 @@ void *bionic_dlopen(const char *filename, int flag)
 
         if (!(ret = dlopen(filename, flag))) {
             set_dlerror(DL_ERR_CANNOT_LOAD_LIBRARY);
-			printf("error while calling glibc dlopen for: >%s<\n", filename);
+			printf("error while calling glibc dlopen for: >%s<, dlerror: >%s<\n", filename, dlerror());
 		} else {
 			printf("success calling glibc dlopen for: >%s<, ret: %p\n", filename, ret);
 		}

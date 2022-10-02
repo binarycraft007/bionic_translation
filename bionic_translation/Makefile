@@ -1,18 +1,28 @@
-#FIXME: automagically use the same flags as dalvik
+#FIXME: automagically compile for the same architecture as art
+
+CFLAGS ?= -g -O2
+CFLAGS += -fPIC -D__x86_64__
 
 default: all
 
-libdl_bio.so: linker/wrapper/wrapper.c linker/dlfcn.c linker/linker.c linker/linker_environ.c linker/rt.c linker/strlcpy.c
-	gcc -g -fPIC -c -D_GNU_SOURCE -fvisibility=hidden linker/wrapper/wrapper.c -o wrapper.a
-	gcc -g -fPIC -D__x86_64__ -D_GNU_SOURCE -DLINKER_DEBUG=1 -DVERBOSE_FUNCTIONS=1 -Wno-pedantic -Wno-variadic-macros -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -ldl -lpthread -shared -o libdl_bio.so wrapper.a linker/dlfcn.c linker/linker.c linker/linker_environ.c linker/rt.c linker/strlcpy.c
+%.a:
+	$(LINK.c) $(CFLAGS) -c $(filter %.c,$^) -o $@
 
-libpthread_bio.so: pthread_wrapper/libpthread.c
-	gcc -g -fPIC -D_GNU_SOURCE -ldl -lpthread -shared -o libpthread_bio.so pthread_wrapper/libpthread.c
+%.so:
+	$(LINK.c) $(CFLAGS) -shared $(filter %.c %.a,$^) $(LDLIBS) -o $@
 
-all: libdl_bio.so libpthread_bio.so
+
+include wrapper/Makefile
+
+include libc/Makefile
+include linker/Makefile
+include pthread_wrapper/Makefile
+
+all: libc.so libdl_bio.so libpthread_bio.so
 
 clean:
-	rm libpthread_bio.so || true
+	rm libc.so || true
 	rm libdl_bio.so || true
-	rm wrapper.a || true
+	rm libpthread_bio.so || true
+	rm $(WRAPPER_OUT) || true
 
