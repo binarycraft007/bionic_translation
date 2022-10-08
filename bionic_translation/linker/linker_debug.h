@@ -150,7 +150,7 @@ extern unsigned apkenv_bitmask[];
 #endif
 
 #define DEBUG_DUMP_PHDR(phdr, name, pid) do { \
-        DEBUG("%5d %s (phdr = 0x%08x)\n", (pid), (name), (unsigned)(phdr));   \
+        DEBUG("%5d %s (phdr = 0x%08x)\n", (pid), (name), (intptr_t)(phdr));   \
         DEBUG("\t\tphdr->offset   = 0x%08x\n", (unsigned)((phdr)->p_offset)); \
         DEBUG("\t\tphdr->p_vaddr  = 0x%08x\n", (unsigned)((phdr)->p_vaddr));  \
         DEBUG("\t\tphdr->p_paddr  = 0x%08x\n", (unsigned)((phdr)->p_paddr));  \

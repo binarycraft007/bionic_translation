@@ -136,12 +136,12 @@ struct soinfo
 	size_t rel_count;
 #endif
 
-    unsigned *preinit_array;
+    intptr_t *preinit_array;
     size_t preinit_array_count;
 
-    unsigned *init_array;
+    intptr_t *init_array;
     size_t init_array_count;
-    unsigned *fini_array;
+    intptr_t *fini_array;
     size_t fini_array_count;
 
     void (*init_func)(void);

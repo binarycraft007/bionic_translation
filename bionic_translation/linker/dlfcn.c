@@ -173,7 +173,7 @@ void *bionic_dlsym(void *handle, const char *symbol)
         bind = ELF32_ST_BIND(sym->st_info);
 
         if(likely((bind == STB_GLOBAL) && (sym->st_shndx != 0))) {
-            unsigned ret = sym->st_value + found->base;
+            intptr_t ret = sym->st_value + found->base;
             pthread_mutex_unlock(&apkenv_dl_lock);
             return wrapper_create((char*)symbol, (void*)ret);
         }
