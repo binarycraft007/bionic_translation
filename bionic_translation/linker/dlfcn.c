@@ -359,9 +359,5 @@ construct(void)
   // we don't currently do said check
   if(bionic_ld_library_path) {
     dl_parse_library_path(bionic_ld_library_path, ":");
-  } else {
-    fprintf(stderr, "BIONIC_LD_LIBRARY_PATH not set; all shared libraries loaded with this shim linker will be passed to the host's dlopen()\n"
-                   "to make use of this shim linker's ablity to link android libraries, set BIONIC_LD_LIBRARY_PATH to a colon-separated list "
-                   "of directories which contain exclusively shared libraries linked against the bionic linker\n");
-  }
+  } // it might make sense to not specify the env, for example translation layer code calls dl_parse_library_path directly with the app's lib dir
 }

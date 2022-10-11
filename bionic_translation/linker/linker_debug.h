@@ -150,14 +150,14 @@ extern unsigned apkenv_bitmask[];
 #endif
 
 #define DEBUG_DUMP_PHDR(phdr, name, pid) do { \
-        DEBUG("%5d %s (phdr = 0x%08x)\n", (pid), (name), (intptr_t)(phdr));   \
-        DEBUG("\t\tphdr->offset   = 0x%08x\n", (unsigned)((phdr)->p_offset)); \
-        DEBUG("\t\tphdr->p_vaddr  = 0x%08x\n", (unsigned)((phdr)->p_vaddr));  \
-        DEBUG("\t\tphdr->p_paddr  = 0x%08x\n", (unsigned)((phdr)->p_paddr));  \
-        DEBUG("\t\tphdr->p_filesz = 0x%08x\n", (unsigned)((phdr)->p_filesz)); \
-        DEBUG("\t\tphdr->p_memsz  = 0x%08x\n", (unsigned)((phdr)->p_memsz));  \
-        DEBUG("\t\tphdr->p_flags  = 0x%08x\n", (unsigned)((phdr)->p_flags));  \
-        DEBUG("\t\tphdr->p_align  = 0x%08x\n", (unsigned)((phdr)->p_align));  \
+        DEBUG("%5d %s (phdr = 0x%016lx)\n", (pid), (name), (uint64_t)(phdr));   \
+        DEBUG("\t\tphdr->offset   = 0x%016lx\n", (uint64_t)((phdr)->p_offset)); \
+        DEBUG("\t\tphdr->p_vaddr  = 0x%016lx\n", (uint64_t)((phdr)->p_vaddr));  \
+        DEBUG("\t\tphdr->p_paddr  = 0x%016lx\n", (uint64_t)((phdr)->p_paddr));  \
+        DEBUG("\t\tphdr->p_filesz = 0x%016lx\n", (uint64_t)((phdr)->p_filesz)); \
+        DEBUG("\t\tphdr->p_memsz  = 0x%016lx\n", (uint64_t)((phdr)->p_memsz));  \
+        DEBUG("\t\tphdr->p_flags  = 0x%016lx\n", (uint64_t)((phdr)->p_flags));  \
+        DEBUG("\t\tphdr->p_align  = 0x%016lx\n", (uint64_t)((phdr)->p_align));  \
     } while (0)
 
 #endif /* _LINKER_DEBUG_H_ */

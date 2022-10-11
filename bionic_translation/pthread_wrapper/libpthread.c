@@ -558,5 +558,5 @@ bionic_pthread_cond_timedwait_monotonic_np(bionic_cond_t *cond, bionic_mutex_t *
 int
 bionic_pthread_cond_timedwait_monotonic(bionic_cond_t *cond, bionic_mutex_t *mutex, const struct timespec *abstime)
 {
-	bionic_pthread_cond_timedwait_monotonic_np(cond, mutex, abstime);
+	return bionic_pthread_cond_timedwait_monotonic_np(cond, mutex, abstime);
 }

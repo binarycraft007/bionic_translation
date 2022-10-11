@@ -163,6 +163,9 @@ bionic_readdir(DIR *dirp)
    return &bde;
 }
 
+// readdir_r is deprecated in glibc, but as long as it exists, it makes sense to use it for implementing the bionic variant
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 int
 bionic_readdir_r(DIR *dirp, struct bionic_dirent *entry, struct bionic_dirent **result)
 {
@@ -179,6 +182,7 @@ bionic_readdir_r(DIR *dirp, struct bionic_dirent *entry, struct bionic_dirent **
    *result = entry;
    return 0;
 }
+#pragma GCC diagnostic pop
 
 // Need to wrap bunch of signal crap
 // https://android.googlesource.com/platform/bionic/+/master/docs/32-bit-abi.md
