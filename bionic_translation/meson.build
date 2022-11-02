@@ -53,6 +53,8 @@ pthread_bio = shared_library('pthread_bio', [
 # libc_bio.so - c_bio looks weird, but remember that 'lib' will be prepended automatically
 shared_library('c_bio', [
                         	'libc/libc.c',
+                        	'libc/libc-chk.c',
+                        	'libc/libc-misc.c',
                            	'libc/libc-stdio.c',
                            	'libc/libc-sha1.c',
                            	'libc/libc-antiantidebug.c',

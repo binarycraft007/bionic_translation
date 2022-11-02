@@ -298,58 +298,6 @@ bionic___strlen_chk(const char *s, size_t s_len)
    return ret;
 }
 
-size_t
-bionic___fwrite_chk(const void * __restrict buf, size_t size, size_t count, FILE * __restrict stream, size_t buf_size)
-{
-   size_t total;
-   if (__builtin_expect(__builtin_mul_overflow(size, count, &total), 0)) {
-      // overflow: trigger the error path in fwrite
-      return fwrite(buf, size, count, stream);
-   }
-
-   if (__builtin_expect(total > buf_size, 0)) {
-      fprintf(stderr, "*** fwrite read overflow detected ***\n");
-      abort();
-   }
-
-   return fwrite(buf, size, count, stream);
-}
-
-char*
-bionic___strchr_chk(const char* p, int ch, size_t s_len)
-{
-   for (;; ++p, s_len--) {
-      if (__builtin_expect(s_len == 0, 0)) {
-         fprintf(stderr, "*** strchr buffer overrun detected ***\n");
-         abort();
-      }
-
-      if (*p == ch)
-         return (char*)p;
-      else if (!*p)
-         return NULL;
-   }
-   assert(0 && "should not happen");
-}
-
-char*
-bionic___strrchr_chk(const char* p, int ch, size_t s_len)
-{
-   const char *save;
-   for (save = NULL;; ++p, s_len--) {
-      if (__builtin_expect(s_len == 0, 0)) {
-         fprintf(stderr, "*** strchr buffer overrun detected ***\n");
-         abort();
-      }
-
-      if (*p == ch)
-         save = p;
-      else if (!*p)
-         return (char*)save;
-   }
-   assert(0 && "should not happen");
-}
-
 #include "libc-sysconf.h"
 
 long
