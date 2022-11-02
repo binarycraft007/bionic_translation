@@ -21,6 +21,7 @@ shared_library('dl_bio', [
                          install: true,
                          dependencies: [
                          	dependency('dl'),
+                         	dependency('egl'),
                          ],
                          link_with: [
                          	wrapper
@@ -67,6 +68,7 @@ shared_library('c_bio', [
                         ],
                         c_args: [
                         	'-fPIC',
+                                '-DPAGESIZE=4096',
                         	'-D__x86_64__',
                         	'-D_GNU_SOURCE'
                         ],

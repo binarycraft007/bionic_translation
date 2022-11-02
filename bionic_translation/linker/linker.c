@@ -52,6 +52,9 @@
 
 #include <libgen.h>
 
+/* eglGetProcAddress to import funny extensions that Android exports but mesa don't */
+#include <EGL/egl.h>
+
 /* special private C library header - see Android.mk */
 #include "bionic_tls.h"
 
@@ -1433,6 +1436,11 @@ static int apkenv_reloc_library(soinfo* si, GElf_Rela *rela, size_t count)
 			   if (strstr(sym_name, "pthread_"))
 				  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
 			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
+			} else if (!sym_addr && !strncmp(sym_name, "gl", 2)) {
+			   LINKER_DEBUG_PRINTF("=======================================\n");
+			   LINKER_DEBUG_PRINTF("%s symbol %s is an OpenGL extension?\n", si->name, sym_name);
+			   if ((sym_addr = eglGetProcAddress(sym_name)))
+				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
 			}
 
 			if (sym_addr != 0) {

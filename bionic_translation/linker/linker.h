@@ -45,6 +45,11 @@
 #define PAGE_SIZE 4096
 #define PAGE_MASK 4095
 
+#ifndef R_AARCH64_TLS_DTPREL32
+#define R_AARCH64_TLS_DTPREL32	1031
+#pragma message "The R_AARCH64_TLS_DTPREL32 was not set :("
+#endif
+
 void apkenv_debugger_init();
 
 /* magic shared structures that GDB knows about */
