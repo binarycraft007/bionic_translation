@@ -122,29 +122,34 @@ void *bionic_dlsym(void *handle, const char *symbol)
         goto err;
     }
 
+    char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+    memcpy(wrap_sym_name + 7, symbol, MIN(sizeof(wrap_sym_name) - 7, strlen(symbol)));
+
 	bool is_this_our_handle = do_we_have_this_handle(handle);
 
 	if(!is_this_our_handle) { // if the handle is not our handle, we can probably just try calling glibc dlsym
-		if ((sym = dlsym(handle, symbol))) {
+		if ((sym = dlsym(RTLD_DEFAULT, wrap_sym_name))) { // TODO: this is not ideal, we should probably translate all android system libary names to ..._android.so.0 and have those either be symlinks or small libs which depend on the actual lib and in addition implement bionic_ overrides
             pthread_mutex_unlock(&apkenv_dl_lock);
-            verbose("found system version");
+            verbose("system dlopen handle: found bionic_ version");
+            return wrapper_create(symbol, sym);
+		} else if ((sym = dlsym(handle, symbol))) {
+            pthread_mutex_unlock(&apkenv_dl_lock);
+            verbose("system dlopen handle: found system version");
             return wrapper_create(symbol, sym);
 		}
 	}
 
 
-    char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
-    memcpy(wrap_sym_name + 7, symbol, MIN(sizeof(wrap_sym_name) - 7, strlen(symbol)));
     if ((sym = dlsym(RTLD_DEFAULT, wrap_sym_name))) {
         pthread_mutex_unlock(&apkenv_dl_lock);
-        verbose("found bionic_ version");
+        verbose("RTLD_DEFAULT: found bionic_ version");
         return wrapper_create(symbol, sym);
     } else if ((sym = dlsym(RTLD_DEFAULT, symbol))) {
         pthread_mutex_unlock(&apkenv_dl_lock);
-        verbose("found system version");
+        verbose("RTLD_DEFAULT: found system version");
         return wrapper_create(symbol, sym);
     } else {
-        verbose("haven't found bionic_ nor system version; dlerror: >%s<", dlerror());
+        verbose("RTLD_DEFAULT: haven't found bionic_ nor system version; dlerror: >%s<", dlerror());
 	}
 
     if(unlikely(handle == 0)) {
