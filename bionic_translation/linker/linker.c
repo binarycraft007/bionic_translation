@@ -37,6 +37,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdnoreturn.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -1163,7 +1164,7 @@ get_wr_offset(int fd, const char *name, GElf_Ehdr *ehdr)
 #endif
 
 static soinfo *
-apkenv_load_library(const char *name, const bool try_glibc)
+apkenv_load_library(const char *name, const bool try_glibc, int glibc_flag, void **_glibc_handle)
 {
     char fullpath[512];
     int fd = apkenv_open_library(name, fullpath);
@@ -1175,13 +1176,22 @@ apkenv_load_library(const char *name, const bool try_glibc)
     GElf_Ehdr *hdr;
 
     if(fd == -1) {
-        if (try_glibc && dlopen(name, RTLD_NOW | RTLD_GLOBAL)) {
-            DEBUG("Loaded %s with glibc dlopen\n", name);
-            return NULL;
-        } else if (try_glibc) {
-            DEBUG("failed to load %s with glibc dlopen\n", name);
-		}
-        DL_ERR("Bionic library '%s' not found", name);
+        if(try_glibc) {
+            if (!(glibc_flag & (RTLD_LAZY | RTLD_NOW)))
+                  glibc_flag |= RTLD_NOW;
+            if(!_glibc_handle)
+                glibc_flag |= RTLD_GLOBAL;
+			void *glibc_handle;
+            if (glibc_handle = dlopen(name, glibc_flag)) {
+                if(_glibc_handle)
+                    *_glibc_handle = glibc_handle;
+                DEBUG("Loaded %s with glibc dlopen\n", name);
+                return NULL;
+            } else {
+                DEBUG("failed to load %s with glibc dlopen (error: %s)\n", name, dlerror());
+            }
+        }
+        DL_ERR("shim bionic linker: library '%s' not found", name);
         
         return NULL;
     }
@@ -1287,7 +1297,7 @@ apkenv_init_library(soinfo *si)
     return si;
 }
 
-soinfo *apkenv_find_library(const char *name, const bool try_glibc)
+soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_flag, void **glibc_handle)
 {
     soinfo *si;
     const char *bname;
@@ -1328,7 +1338,7 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc)
     }
 
     TRACE("[ %5d '%s' has not been loaded yet.  Locating...]\n", apkenv_pid, name);
-    if (!(si = apkenv_load_library(name, try_glibc)) || !(si = apkenv_init_library(si)))
+    if (!(si = apkenv_load_library(name, try_glibc, glibc_flag, glibc_handle)) || !(si = apkenv_init_library(si)))
         return NULL;
 
     if (!strcmp(bname, "libstdc++.so")) {
@@ -1400,6 +1410,11 @@ unsigned int apkenv_unload_library(soinfo *si)
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
+static void noreturn symbol_not_linked_stub() {
+	printf("ABORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link\n");
+	exit(1);
+}
+
 #if defined(USE_RELA)
 static int apkenv_reloc_library(soinfo* si, GElf_Rela *rela, size_t count)
 {
@@ -1429,18 +1444,27 @@ static int apkenv_reloc_library(soinfo* si, GElf_Rela *rela, size_t count)
 			sym_addr = 0;
 
 			if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, wrap_sym_name))) {
-			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, wrap_sym_name, sym_addr);
+				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, wrap_sym_name, sym_addr);
 			} else if ((s = apkenv__do_lookup(si, sym_name, &base))) {
 				// normal symbol
 			} else if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, sym_name))) {
-			   if (strstr(sym_name, "pthread_"))
-				  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
-			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
-			} else if (!sym_addr && !strncmp(sym_name, "gl", 2)) {
-			   LINKER_DEBUG_PRINTF("=======================================\n");
-			   LINKER_DEBUG_PRINTF("%s symbol %s is an OpenGL extension?\n", si->name, sym_name);
-			   if ((sym_addr = eglGetProcAddress(sym_name)))
+				if (strstr(sym_name, "pthread_"))
+					fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
 				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
+			} else if (!sym_addr && !strncmp(sym_name, "gl", 2)) {
+				LINKER_DEBUG_PRINTF("=======================================\n");
+				LINKER_DEBUG_PRINTF("%s symbol %s is an OpenGL extension?\n", si->name, sym_name);
+				if ((sym_addr = (intptr_t)eglGetProcAddress(sym_name)))
+					LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
+			} else {
+				// symbol not found
+				if(getenv("LINKER_DIE_AT_RUNTIME")) {
+					// if this special env is set, and the symbol is a function, link in a stub which only fails when it's actually called
+					if(GELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
+						sym_addr = (intptr_t)&symbol_not_linked_stub;
+						fprintf(stderr, "%s hooked symbol %s to symbol_not_linked_stub (LINKER_DIE_AT_RUNTIME)\n", si->name, sym_name);
+					}
+				}
 			}
 
 			if (sym_addr != 0) {
@@ -2407,7 +2431,7 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
         int i;
         memset(apkenv_preloads, 0, sizeof(apkenv_preloads));
         for(i = 0; apkenv_ldpreload_names[i] != NULL; i++) {
-            soinfo *lsi = apkenv_find_library(apkenv_ldpreload_names[i], true);
+            soinfo *lsi = apkenv_find_library(apkenv_ldpreload_names[i], true, RTLD_NOW, NULL);
             if(lsi == 0) {
                 apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
 // not sure if this is "fixable", but worst case scenario is truncated error message, so silencing it
@@ -2428,7 +2452,7 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
             DEBUG("%5d %s needs %s\n", apkenv_pid, si->name, si->strtab + d->d_un.d_val);
             soinfo *lsi = NULL;
             // if (get_builtin_lib_handle(si->strtab + d->d_un.d_val) == NULL)
-            lsi = apkenv_find_library(si->strtab + d->d_un.d_val, true);
+            lsi = apkenv_find_library(si->strtab + d->d_un.d_val, true, RTLD_NOW, NULL);
             if(lsi == 0) {
                 /**
                  * XXX Dirty Hack Alarm --thp XXX

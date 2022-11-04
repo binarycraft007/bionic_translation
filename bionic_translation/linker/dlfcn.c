@@ -72,24 +72,17 @@ void *bionic_dlopen(const char *filename, int flag)
     verbose("%s (%d)", filename, flag);
     soinfo *ret;
     pthread_mutex_lock(&apkenv_dl_lock);
-    ret = apkenv_find_library(filename, false);
+    void *glibc_handle = NULL;
+    ret = apkenv_find_library(filename, true, flag, &glibc_handle); // flag only used for glibc dlopen
 
-    if (unlikely(ret == NULL)) {
-        if (!(flag & (RTLD_LAZY | RTLD_NOW)))
-          flag |= RTLD_NOW;
-
-		printf("calling glibc dlopen for: >%s<\n", filename);
-
-        if (!(ret = dlopen(filename, flag))) {
-            set_dlerror(DL_ERR_CANNOT_LOAD_LIBRARY);
-			printf("error while calling glibc dlopen for: >%s<, dlerror: >%s<\n", filename, dlerror());
-		} else {
-			printf("success calling glibc dlopen for: >%s<, ret: %p\n", filename, ret);
-		}
-    } else {
+    if(ret) {
         apkenv_call_constructors_recursive(ret);
         ret->refcount++;
-    }
+    } else if(glibc_handle) {
+		ret = glibc_handle;
+	} else {
+		set_dlerror(DL_ERR_CANNOT_LOAD_LIBRARY);
+	}
     pthread_mutex_unlock(&apkenv_dl_lock);
     return ret;
 }

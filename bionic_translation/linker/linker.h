@@ -201,7 +201,7 @@ extern soinfo apkenv_libdl_info;
 #define DT_PREINIT_ARRAYSZ 33
 #endif
 
-soinfo *apkenv_find_library(const char *name, const bool try_glibc);
+soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_flags, void **glibc_handle);
 unsigned apkenv_unload_library(soinfo *si);
 GElf_Sym *apkenv_lookup_in_library(soinfo *si, const char *name);
 GElf_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start);
