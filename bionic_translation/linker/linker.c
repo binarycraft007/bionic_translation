@@ -1316,11 +1316,13 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
         name = "libc_bio.so.0";
     else if(!strcmp(name, "libstdc++.so"))
         name = "libstdc++_bio.so.0";
-	// NOTE: it seems weird to hardcode this here when we're not providing libandroid.so.0,
+	// NOTE: it seems weird to hardcode this here when we're not providing these libs,
 	// but the list of libraries for which we need to do this should be finite so it's
-	// not the worst thing ever
+	// not the worst thing ever (TODO: read these overrides from /etc ?)
     else if(!strcmp(name, "libandroid.so"))
         name = "libandroid.so.0";
+    else if(!strcmp(name, "libOpenSLES.so"))
+        name = "libOpenSLES.so.1";
 
     bname = strrchr(name, '/');
     bname = bname ? bname + 1 : name;
