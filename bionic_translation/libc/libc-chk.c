@@ -143,7 +143,7 @@ int bionic___snprintf_chk(char* dest, size_t supplied_size, int flags,
 							  size_t dest_len_from_compiler, const char* format, ...) {
   va_list va;
   va_start(va, format);
-  int result = __vsnprintf_chk(dest, supplied_size, flags, dest_len_from_compiler, format, va);
+  int result = bionic___vsnprintf_chk(dest, supplied_size, flags, dest_len_from_compiler, format, va);
   va_end(va);
   return result;
 }
@@ -179,7 +179,7 @@ int bionic___sprintf_chk(char* dest, int flags,
 							 size_t dest_len_from_compiler, const char* format, ...) {
   va_list va;
   va_start(va, format);
-  int result = __vsprintf_chk(dest, flags, dest_len_from_compiler, format, va);
+  int result = bionic___vsprintf_chk(dest, flags, dest_len_from_compiler, format, va);
   va_end(va);
   return result;
 }

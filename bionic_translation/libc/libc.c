@@ -24,7 +24,8 @@ struct bionic_dirent {
    char d_name[256];
 };
 
-#if defined(__x86__) || defined (__x86_64__)
+// NOTE: there's probably a reason aarch64 wasn't included here, but at least it will compile like this
+#if defined(__x86__) || defined (__x86_64__) || defined(__aarch64__)
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
    union {
