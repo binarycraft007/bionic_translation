@@ -5,7 +5,6 @@ wrapper = static_library('wrapper', [
                                     ],
                                     c_args: [
                                     	'-fPIC',
-                                    	'-D__x86_64__',
                                     	'-D_GNU_SOURCE',
                                     	'-fvisibility=hidden'
                                     ])
@@ -28,10 +27,12 @@ shared_library('dl_bio', [
                          ],
                          c_args: [
                          	'-fPIC',
-                         	'-D__x86_64__',
                          	'-D_GNU_SOURCE',
                          	'-DLINKER_DEBUG=1',
                          	'-DVERBOSE_FUNCTIONS=1',
+                         ],
+                         link_args: [
+                         	'-Wl,--no-as-needed',
                          	'-lpthread' # dependency('threads') doesn't express that we specifically need pthreads
                          ])
 
@@ -45,8 +46,10 @@ pthread_bio = shared_library('pthread_bio', [
                                             ],
                                             c_args: [
                                             	'-fPIC',
-                                            	'-D__x86_64__',
                                             	'-D_GNU_SOURCE',
+                                            ],
+                                            link_args: [
+                                            	'-Wl,--no-as-needed', # this really shouldn't be needed, since symbols from libpthread are used, but somehow it is
                                             	'-lpthread' # dependency('threads') doesn't express that we specifically need pthreads
                                             ])
 
@@ -62,7 +65,7 @@ shared_library('c_bio', [
                         soversion: 0, # we're shimming a stable ABI; this should never need to change
                         install: true,
                         dependencies: [
-                        	dependency('libbsd'), dependency('libunwind')
+                        	dependency('libbsd'), dependency('libunwind'),
                         ],
                         link_with: [
                         	wrapper,
@@ -70,12 +73,13 @@ shared_library('c_bio', [
                         ],
                         c_args: [
                         	'-fPIC',
-                                '-DPAGESIZE=4096',
-                        	'-D__x86_64__',
+                        	'-DPAGESIZE=4096',
                         	'-D_GNU_SOURCE'
                         ],
                         link_args: [
-                        '-Wl,-wrap,_IO_file_xsputn'
+                        	'-Wl,-wrap,_IO_file_xsputn',
+                        	'-Wl,--no-as-needed', # needed to put stuff in DT_NEEDED that we don't necessarily directly use
+                        	'-lpthread_bio' # somehow link_with isn't enough
                         ])
 
 shared_library('stdc++_bio', [
