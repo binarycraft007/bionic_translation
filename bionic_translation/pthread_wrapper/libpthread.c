@@ -483,7 +483,7 @@ bionic_pthread_cond_destroy(bionic_cond_t *cond)
 int
 bionic_pthread_cond_init(bionic_cond_t *cond, const bionic_condattr_t *attr)
 {
-   assert(cond && (!attr || IS_MAPPED(attr)));
+   // SUS // assert(cond && (!attr || IS_MAPPED(attr)));
    // From PTHREAD_COND_INIT(3)
    // Attempting to initialize an already initialized mutex result in undefined behavior.
    *cond = (bionic_cond_t){0};
