@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,20 +25,30 @@ struct bionic_dirent {
    char d_name[256];
 };
 
-// NOTE: there's probably a reason aarch64 wasn't included here, but at least it will compile like this
-#if defined(__x86__) || defined (__x86_64__) || defined(__aarch64__)
+#if defined(__x86__)
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
-   union {
-      void (*bsa_handler)(int);
-      void (*bsa_sigaction)(int, void*, void*);
-   };
-   bionic_sigset_t sa_mask;
-   int sa_flags;
-   void (*sa_restorer)(void);
+	union {
+		void (*bsa_handler)(int);
+		void (*bsa_sigaction)(int, void*, void*);
+	};
+	bionic_sigset_t sa_mask;
+	int sa_flags;
+	void (*sa_restorer)(void);
+};
+#elif defined (__x86_64__) || defined(__aarch64__) // for 64bit arches, `sa_flags` is in a different place
+typedef unsigned long bionic_sigset_t;
+struct bionic_sigaction {
+	unsigned int sa_flags;
+	union {
+		void (*bsa_handler)(int);
+		void (*bsa_sigaction)(int, void*, void*);
+	};
+	bionic_sigset_t sa_mask;
+	void (*sa_restorer)(void);
 };
 #else
-#  error "not implemented for this platform"
+	#error "bionic_sigaction not implemented for this platform"
 #endif
 
 // Stuff that doesn't exist in glibc
