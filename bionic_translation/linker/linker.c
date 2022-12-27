@@ -35,6 +35,7 @@
 
 #include <linux/auxvec.h>
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdnoreturn.h>
@@ -53,8 +54,11 @@
 
 #include <libgen.h>
 
-/* eglGetProcAddress to import funny extensions that Android exports but mesa don't */
+/* eglGetProcAddress to import funny extensions that Android exports but Mesa sometimes doesn't */
 #include <EGL/egl.h>
+
+/* sigsetjmp may or may not be a macro; we can't wrap it, so we need to substitute it for the system version when linking */
+#include <setjmp.h>
 
 /* special private C library header - see Android.mk */
 #include "bionic_tls.h"
@@ -1412,9 +1416,76 @@ unsigned int apkenv_unload_library(soinfo *si)
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
-static void noreturn symbol_not_linked_stub() {
-	printf("ABORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link\n");
-	exit(1);
+/* --- TODO: move this into wrapper.c and use it to get rid of that file's dependency on magic assembly */
+
+#ifndef __PIC__
+#error position-independent code generation is needed to support copyable functions
+#endif
+
+// NOTE: to make this more general, it would be nice to be able to specify return type and parameter
+// list, but we don't need that here
+// NOTE: a copyable function cannot access static variables, because position-independent code uses
+// relative offsets to reference those; anything it might need to access has to be passed to it using
+// the adjacent_variable located next to the function in it's custom section (and therefore next
+// to a copy of the function in a copy of that section)
+// this will probably be a pointer-to-a-structure, and in fact our code currently assumes
+// that sizeof(adjacent_variable_type) is sizeof(void *)
+// NOTE: calling a copyable function at it's original address will have FUNC_ADJ_VAR
+// return NULL, and you can't really call any external functions when FUNC_ADJ_VAR is NULL,
+// so this should be avoided
+
+#define FUNC_ADJ_VAR(func_name) (func_name##_adj_data)
+
+#define COPYABLE_FUNC(func_name) \
+	extern const char __start_##func_name##_section; \
+	extern const char __stop_##func_name##_section; \
+	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name"_section"))) __attribute__((__used__)) = NULL; \
+	void __attribute__((no_reorder)) __attribute__((section(#func_name"_section#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) func_name(void)
+
+void * alloc_executable_memory(size_t size) {
+	void *ptr = mmap(0, size,
+	                 PROT_READ | PROT_WRITE | PROT_EXEC,
+	                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ptr == (void *)-1) {
+		perror("mmap");
+		return NULL;
+	}
+	return ptr;
+}
+
+typedef void (*funcptr)(void);
+
+#define make_copy_of_function(func, data) _make_copy_of_function(func, &func##_adj_data, data, &__start_##func##_section, &__stop_##func##_section)
+
+funcptr _make_copy_of_function(funcptr func, void *func_adj_data_addr, void *data, const void *func_section_start, const void *func_section_end)
+{
+	size_t sizeof_func_section = func_section_end - func_section_start;
+	size_t func_off = (intptr_t)func - (intptr_t)func_section_start;
+	size_t adj_var_off = (intptr_t)func_adj_data_addr - (intptr_t)func_section_start;
+
+	void *testfuncsection_copy = alloc_executable_memory(sizeof_func_section);
+	memcpy(testfuncsection_copy, func_section_start, sizeof_func_section);
+	funcptr func_copy = (void *)((intptr_t)testfuncsection_copy + func_off);
+	void **adj_var_ptr = (void **)((intptr_t)testfuncsection_copy + adj_var_off);
+
+	*adj_var_ptr = data;
+
+	return func_copy;
+}
+
+/* --- end of to-move code */
+
+struct stub_func_adj_data {
+	int (*printf)(const char *restrict format, ...);
+	void (*exit)(int status);
+	const char *orig_func_name;
+};
+
+COPYABLE_FUNC(symbol_not_linked_stub) {
+	char fmt_str[] = "ABORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link (symbol name: >%s<)\n";
+	struct stub_func_adj_data *adj_data = FUNC_ADJ_VAR(symbol_not_linked_stub);
+	adj_data->printf(fmt_str, adj_data->orig_func_name);
+	adj_data->exit(1);
 }
 
 #if defined(USE_RELA)
@@ -1458,12 +1529,26 @@ static int apkenv_reloc_library(soinfo* si, GElf_Rela *rela, size_t count)
 				LINKER_DEBUG_PRINTF("%s symbol %s is an OpenGL extension?\n", si->name, sym_name);
 				if ((sym_addr = (intptr_t)eglGetProcAddress(sym_name)))
 					LINKER_DEBUG_PRINTF("%s hooked symbol %s to %016lx\n", si->name, sym_name, sym_addr);
+			} else if (!strcmp(sym_name, "sigsetjmp")) {
+				// we can't wrap this, so we need to substitute it for the correct function here
+				// __sigsetjmp is the glibc version, but the musl version is just sigsetjmp so it should be resolved properly by dslsym
+				// and not get here
+#ifdef __GLIBC__
+				sym_addr = (intptr_t)&__sigsetjmp;
+#else
+				fprintf(stderr, "sigsetjmp special handling shouldn't be needed on musl\n");
+				exit(1);
+#endif
 			} else {
 				// symbol not found
 				if(getenv("LINKER_DIE_AT_RUNTIME")) {
 					// if this special env is set, and the symbol is a function, link in a stub which only fails when it's actually called
 					if(GELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
-						sym_addr = (intptr_t)&symbol_not_linked_stub;
+						struct stub_func_adj_data *data = malloc(sizeof(struct stub_func_adj_data));
+						data->printf = &printf;
+						data->exit = &exit;
+						data->orig_func_name = sym_name;
+						sym_addr = (intptr_t)make_copy_of_function(symbol_not_linked_stub, data);
 						fprintf(stderr, "%s hooked symbol %s to symbol_not_linked_stub (LINKER_DIE_AT_RUNTIME)\n", si->name, sym_name);
 					}
 				}
