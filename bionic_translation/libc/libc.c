@@ -74,6 +74,13 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 	return strlen(src);
 }
 
+#ifndef strtoll_l
+long long int strtoll_l (const char *restrict nptr, char **restrict endptr, int base, locale_t loc)
+{
+	return strtoll(nptr, endptr, base);
+}
+#endif
+
 pid_t
 gettid(void)
 {
