@@ -1432,15 +1432,17 @@ unsigned int apkenv_unload_library(soinfo *si)
 // that sizeof(adjacent_variable_type) is sizeof(void *)
 // NOTE: calling a copyable function at it's original address will have FUNC_ADJ_VAR
 // return NULL, and you can't really call any external functions when FUNC_ADJ_VAR is NULL,
-// so this should be avoided
+// so this should be avoided (also, is the section even executable?)
+// NOTE: `;#` serves as a hack to comment out section parameters which would otherwise cause a conflict
+// NOTE: alignment to PAGE_SIZE is used to fix an issue where aarch64 used `adrp` and gets an incorrect address in the new location
 
 #define FUNC_ADJ_VAR(func_name) (func_name##_adj_data)
 
 #define COPYABLE_FUNC(func_name) \
 	extern const char __start_##func_name##_section; \
 	extern const char __stop_##func_name##_section; \
-	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name"_section"))) __attribute__((__used__)) = NULL; \
-	void __attribute__((no_reorder)) __attribute__((section(#func_name"_section#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) func_name(void)
+	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name"_section"))) __attribute__((__used__)) __attribute__((aligned(PAGE_SIZE))) = NULL; \
+	void __attribute__((no_reorder)) __attribute__((section(#func_name"_section;#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) __attribute__((optimize("-fno-stack-protector"))) func_name(void)
 
 void * alloc_executable_memory(size_t size) {
 	void *ptr = mmap(0, size,
@@ -1482,7 +1484,132 @@ struct stub_func_adj_data {
 };
 
 COPYABLE_FUNC(symbol_not_linked_stub) {
-	char fmt_str[] = "ABORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link (symbol name: >%s<)\n";
+	// char fmt_str[] = "..." seems to still use a string literal on aarch64 (anything with fixed width instructions possibly?)
+	// the following was used to work around this (first letter ommited since `cat -n` is 1-indexed):
+	// echo "BORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link (symbol name: >%s<)" | sed -E "s/(.)/\1\n/g" | cat -n | sed -E "s/ *([^ \t]*)[ \t]*(.)/fmt_str[\1] = '\2';/" | sed "s/'''/\'\\\\''/
+	char fmt_str[122];
+	fmt_str[0] = 'A';
+	fmt_str[1] = 'B';
+	fmt_str[2] = 'O';
+	fmt_str[3] = 'R';
+	fmt_str[4] = 'T';
+	fmt_str[5] = 'I';
+	fmt_str[6] = 'N';
+	fmt_str[7] = 'G';
+	fmt_str[8] = ':';
+	fmt_str[9] = ' ';
+	fmt_str[10] = 'L';
+	fmt_str[11] = 'I';
+	fmt_str[12] = 'N';
+	fmt_str[13] = 'K';
+	fmt_str[14] = 'E';
+	fmt_str[15] = 'R';
+	fmt_str[16] = '_';
+	fmt_str[17] = 'D';
+	fmt_str[18] = 'I';
+	fmt_str[19] = 'E';
+	fmt_str[20] = '_';
+	fmt_str[21] = 'A';
+	fmt_str[22] = 'T';
+	fmt_str[23] = '_';
+	fmt_str[24] = 'R';
+	fmt_str[25] = 'U';
+	fmt_str[26] = 'N';
+	fmt_str[27] = 'T';
+	fmt_str[28] = 'I';
+	fmt_str[29] = 'M';
+	fmt_str[30] = 'E';
+	fmt_str[31] = ' ';
+	fmt_str[32] = 'w';
+	fmt_str[33] = 'a';
+	fmt_str[34] = 's';
+	fmt_str[35] = ' ';
+	fmt_str[36] = 's';
+	fmt_str[37] = 'e';
+	fmt_str[38] = 't';
+	fmt_str[39] = ',';
+	fmt_str[40] = ' ';
+	fmt_str[41] = 'a';
+	fmt_str[42] = 'n';
+	fmt_str[43] = 'd';
+	fmt_str[44] = ' ';
+	fmt_str[45] = 's';
+	fmt_str[46] = 'o';
+	fmt_str[47] = 'm';
+	fmt_str[48] = 'e';
+	fmt_str[49] = 'o';
+	fmt_str[50] = 'n';
+	fmt_str[51] = 'e';
+	fmt_str[52] = ' ';
+	fmt_str[53] = 'c';
+	fmt_str[54] = 'a';
+	fmt_str[55] = 'l';
+	fmt_str[56] = 'l';
+	fmt_str[57] = 'e';
+	fmt_str[58] = 'd';
+	fmt_str[59] = ' ';
+	fmt_str[60] = 'a';
+	fmt_str[61] = ' ';
+	fmt_str[62] = 'f';
+	fmt_str[63] = 'u';
+	fmt_str[64] = 'n';
+	fmt_str[65] = 'c';
+	fmt_str[66] = 't';
+	fmt_str[67] = 'i';
+	fmt_str[68] = 'o';
+	fmt_str[69] = 'n';
+	fmt_str[70] = ' ';
+	fmt_str[71] = 'w';
+	fmt_str[72] = 'h';
+	fmt_str[73] = 'i';
+	fmt_str[74] = 'c';
+	fmt_str[75] = 'h';
+	fmt_str[76] = ' ';
+	fmt_str[77] = 'w';
+	fmt_str[78] = 'e';
+	fmt_str[79] = ' ';
+	fmt_str[80] = 'w';
+	fmt_str[81] = 'e';
+	fmt_str[82] = 'r';
+	fmt_str[83] = 'e';
+	fmt_str[84] = 'n';
+	fmt_str[85] = '\'';
+	fmt_str[86] = 't';
+	fmt_str[87] = ' ';
+	fmt_str[88] = 'a';
+	fmt_str[89] = 'b';
+	fmt_str[90] = 'l';
+	fmt_str[91] = 'e';
+	fmt_str[92] = ' ';
+	fmt_str[93] = 't';
+	fmt_str[94] = 'o';
+	fmt_str[95] = ' ';
+	fmt_str[96] = 'l';
+	fmt_str[97] = 'i';
+	fmt_str[98] = 'n';
+	fmt_str[99] = 'k';
+	fmt_str[100] = ' ';
+	fmt_str[101] = '(';
+	fmt_str[102] = 's';
+	fmt_str[103] = 'y';
+	fmt_str[104] = 'm';
+	fmt_str[105] = 'b';
+	fmt_str[106] = 'o';
+	fmt_str[107] = 'l';
+	fmt_str[108] = ' ';
+	fmt_str[109] = 'n';
+	fmt_str[110] = 'a';
+	fmt_str[111] = 'm';
+	fmt_str[112] = 'e';
+	fmt_str[113] = ':';
+	fmt_str[114] = ' ';
+	fmt_str[115] = '>';
+	fmt_str[116] = '%';
+	fmt_str[117] = 's';
+	fmt_str[118] = '<';
+	fmt_str[119] = ')';
+	fmt_str[120] = '\n';
+	fmt_str[121] = '\0';
 	struct stub_func_adj_data *adj_data = FUNC_ADJ_VAR(symbol_not_linked_stub);
 	adj_data->printf(fmt_str, adj_data->orig_func_name);
 	adj_data->exit(1);
