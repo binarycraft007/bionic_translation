@@ -1,4 +1,4 @@
-project('android_translation_layer', ['c', 'cpp'], default_options: ['b_lundef=false'])
+project('android_translation_layer', ['c', 'cpp'], default_options: ['b_lundef=false', 'b_asneeded=false'])
 
 wrapper = static_library('wrapper', [
                                     	'wrapper/wrapper.c'
@@ -78,8 +78,7 @@ shared_library('c_bio', [
                         ],
                         link_args: [
                         	'-Wl,-wrap,_IO_file_xsputn',
-                        	'-Wl,--no-as-needed', # needed to put stuff in DT_NEEDED that we don't necessarily directly use
-                        	'-lpthread_bio' # somehow link_with isn't enough
+                        	'-Wl,--no-as-needed' # needed to put stuff in DT_NEEDED that we don't necessarily directly use (TODO: does this affect the libpthread_bio linking?)
                         ])
 
 shared_library('stdc++_bio', [
