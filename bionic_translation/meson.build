@@ -78,7 +78,8 @@ shared_library('c_bio', [
                         ],
                         link_args: [
                         	'-Wl,-wrap,_IO_file_xsputn',
-                        	'-Wl,--no-as-needed' # needed to put stuff in DT_NEEDED that we don't necessarily directly use (TODO: does this affect the libpthread_bio linking?)
+                        	'-Wl,--no-as-needed', # needed to put stuff in DT_NEEDED that we don't necessarily directly use (sadly this doesn't apply to the link_with libraries, since they are specified before this on the cmdline)
+                        	pthread_bio.full_path() # as-needed is the default on some platforms, and the explicit no-as-needed above only applies to libraries specified after it
                         ])
 
 shared_library('stdc++_bio', [
