@@ -19,7 +19,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <gelf.h>
 
 #include "linker.h"
 #include "linker_format.h"
@@ -105,7 +104,7 @@ void *bionic_dlsym(void *handle, const char *symbol)
 	printf("bionic_dlsym(%p, %s) called\n", handle, symbol);
 
 	soinfo *found;
-	GElf_Sym *sym;
+	ElfW(Sym) *sym;
 	unsigned bind;
 
 	pthread_mutex_lock(&apkenv_dl_lock);
@@ -203,7 +202,7 @@ int bionic_dladdr(const void *addr, Dl_info *info)
 		info->dli_fbase = (void*)(uintptr_t)si->base;
 
 		/* Determine if any symbol in the library contains the specified address */
-		GElf_Sym *sym = apkenv_find_containing_symbol(addr, si);
+		ElfW(Sym) *sym = apkenv_find_containing_symbol(addr, si);
 
 		if(sym != NULL) {
 			info->dli_sname = si->strtab + sym->st_name;
@@ -252,7 +251,7 @@ bionic_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *info, size_t size, void *d
 #error Unsupported architecture. Only ARM and x86 are presently supported.
 #endif
 
-static GElf_Sym apkenv_libdl_symtab[7];
+static ElfW(Sym) apkenv_libdl_symtab[7];
 
 /* Fake out a hash table with a single bucket.
  * A search of the hash table will look through
@@ -293,7 +292,7 @@ __attribute__((constructor))
 void
 construct(void)
 {
-  const GElf_Sym symtab[sizeof(apkenv_libdl_symtab) / sizeof(apkenv_libdl_symtab[0])] = {
+  const ElfW(Sym) symtab[sizeof(apkenv_libdl_symtab) / sizeof(apkenv_libdl_symtab[0])] = {
 	// total length of apkenv_libdl_info.strtab, including trailing 0
 	// This is actually the the STH_UNDEF entry. Technically, it's
 	// supposed to have st_name == 0, but instead, it points to an index
@@ -302,41 +301,41 @@ construct(void)
 	  .st_name = sizeof(ANDROID_LIBDL_STRTAB) - 1,
 	}, {
 	  .st_name = 0,   // starting index of the name in apkenv_libdl_info.strtab
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dlopen,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dlopen,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	}, {
 	  .st_name = 7,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dlclose,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dlclose,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	}, {
 	  .st_name = 15,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dlsym,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dlsym,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	}, {
 	  .st_name = 21,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dlerror,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dlerror,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	}, {
 	  .st_name = 29,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dladdr,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dladdr,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	},
 #if defined(__arm__)
 	{
 	  .st_name = 36,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dl_unwind_find_exidx,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dl_unwind_find_exidx,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	},
 #elif defined(__aarch64__) || defined(__i386__) || defined(__mips__) || defined(__x86_64__)
 	{
 	  .st_name = 36,
-	  .st_value = (GElf_Addr)(uintptr_t)bionic_dl_iterate_phdr,
+	  .st_value = (ElfW(Addr))(uintptr_t)bionic_dl_iterate_phdr,
 	  .st_info = STB_GLOBAL << 4,
 	  .st_shndx = 1,
 	},

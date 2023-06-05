@@ -25,7 +25,7 @@ struct bionic_dirent {
    char d_name[256];
 };
 
-#if defined(__x86__)
+#if defined(__i386__)
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
 	union {

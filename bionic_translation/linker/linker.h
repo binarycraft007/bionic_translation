@@ -32,7 +32,6 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <elf.h>
-#include <gelf.h>
 #include <link.h>
 #include <stdbool.h>
 
@@ -67,10 +66,10 @@ struct link_map
 /* needed for dl_iterate_phdr to be passed to the callbacks provided */
 struct dl_phdr_info
 {
-    GElf_Addr dlpi_addr;
+    ElfW(Addr) dlpi_addr;
     const char *dlpi_name;
-    const GElf_Phdr *dlpi_phdr;
-    GElf_Half dlpi_phnum;
+    const ElfW(Phdr) *dlpi_phdr;
+    ElfW(Half) dlpi_phnum;
 };
 
 
@@ -103,15 +102,15 @@ typedef struct soinfo soinfo;
 struct soinfo
 {
     const char name[SOINFO_NAME_LEN];
-    GElf_Phdr *phdr;
+    ElfW(Phdr) *phdr;
     size_t phnum;
-    GElf_Addr entry;
-    GElf_Addr base;
+    ElfW(Addr) entry;
+    ElfW(Addr) base;
     size_t size;
 
     uint32_t unused;  // DO NOT USE, maintained for compatibility.
 
-    GElf_Dyn *dynamic;
+    ElfW(Dyn) *dynamic;
 
     uint32_t wrprotect_start;
     uint32_t wrprotect_end;
@@ -120,24 +119,24 @@ struct soinfo
     uint32_t flags;
 
     const char *strtab;
-    GElf_Sym *symtab;
+    ElfW(Sym) *symtab;
 
     size_t nbucket;
     size_t nchain;
     uint32_t *bucket;
     uint32_t *chain;
 
-    GElf_Addr **plt_got;
+    ElfW(Addr) **plt_got;
 
 #if defined(USE_RELA)
-	GElf_Rela *plt_rela;
+	ElfW(Rela) *plt_rela;
 	size_t plt_rela_count;
-	GElf_Rela *rela;
+	ElfW(Rela) *rela;
 	size_t rela_count;
 #else
-	GElf_Rel *plt_rel;
+	ElfW(Rel) *plt_rel;
 	size_t plt_rel_count;
-	GElf_Rel *rel;
+	ElfW(Rel) *rel;
 	size_t rel_count;
 #endif
 
@@ -167,7 +166,7 @@ struct soinfo
 
     bool constructors_called;
 
-    GElf_Addr gnu_relro_start;
+    ElfW(Addr) gnu_relro_start;
     unsigned gnu_relro_len;
 
     /* apkenv stuff */
@@ -203,10 +202,10 @@ extern soinfo apkenv_libdl_info;
 
 soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_flags, void **glibc_handle);
 unsigned apkenv_unload_library(soinfo *si);
-GElf_Sym *apkenv_lookup_in_library(soinfo *si, const char *name);
-GElf_Sym *apkenv_lookup(const char *name, soinfo **found, soinfo *start);
+ElfW(Sym) *apkenv_lookup_in_library(soinfo *si, const char *name);
+ElfW(Sym) *apkenv_lookup(const char *name, soinfo **found, soinfo *start);
 soinfo *apkenv_find_containing_library(const void *addr);
-GElf_Sym *apkenv_find_containing_symbol(const void *addr, soinfo *si);
+ElfW(Sym) *apkenv_find_containing_symbol(const void *addr, soinfo *si);
 const char *apkenv_linker_get_error(void);
 void apkenv_call_constructors_recursive(soinfo *si);
 
