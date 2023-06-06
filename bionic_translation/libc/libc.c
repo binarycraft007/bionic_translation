@@ -384,6 +384,25 @@ bionic___libc_init(void *raw_args, void (*onexit)(void), int (*slingshot)(int, c
    exit(slingshot(arg.s.argc, arg.s.argv, arg.s.argv + arg.s.argc + 1));
 }
 
+#ifndef __LP64__  // bionic uses 32 bit time_t on 32 bit systems
+#include <time.h>
+
+struct bionic_timespec {
+  /** Number of seconds. */
+  long tv_sec;
+  /** Number of nanoseconds. Must be less than 1,000,000,000. */
+  long tv_nsec;
+};
+
+int bionic_clock_gettime(clockid_t clockid, struct bionic_timespec *bionic_tp) {
+	struct timespec tp;
+	int ret = clock_gettime(clockid, &tp);
+	bionic_tp->tv_sec = tp.tv_sec;
+	bionic_tp->tv_nsec = tp.tv_nsec;
+	return ret;
+}
+#endif
+
 #ifdef VERBOSE_FUNCTIONS
 #  include "libc-verbose.h"
 #endif
