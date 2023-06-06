@@ -1639,6 +1639,14 @@ COPYABLE_FUNC(symbol_not_linked_stub)
 	adj_data->exit(1);
 }
 
+static ElfW(Addr) prepare_stub_func(const char* sym_name) {
+	struct stub_func_adj_data *data = malloc(sizeof(struct stub_func_adj_data));
+	data->printf = &printf;
+	data->exit = &exit;
+	data->orig_func_name = sym_name;
+	return (intptr_t)make_copy_of_function(symbol_not_linked_stub, data);
+}
+
 #if defined(USE_RELA)
 static int apkenv_reloc_library(soinfo *si, ElfW(Rela) * rela, size_t count)
 {
@@ -1695,11 +1703,7 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rela) * rela, size_t count)
 				if (getenv("LINKER_DIE_AT_RUNTIME")) {
 					// if this special env is set, and the symbol is a function, link in a stub which only fails when it's actually called
 					if (ELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
-						struct stub_func_adj_data *data = malloc(sizeof(struct stub_func_adj_data));
-						data->printf = &printf;
-						data->exit = &exit;
-						data->orig_func_name = sym_name;
-						sym_addr = (intptr_t)make_copy_of_function(symbol_not_linked_stub, data);
+						sym_addr = prepare_stub_func(sym_name);
 						fprintf(stderr, "%s hooked symbol %s to symbol_not_linked_stub (LINKER_DIE_AT_RUNTIME)\n", si->name, sym_name);
 					}
 				}
@@ -1993,6 +1997,15 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) * rel, size_t count)
 				if (strstr(sym_name, "pthread_"))
 					fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
 				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
+			} else {
+				// symbol not found
+				if(getenv("LINKER_DIE_AT_RUNTIME")) {
+					// if this special env is set, and the symbol is a function, link in a stub which only fails when it's actually called
+					if(ELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
+						sym_addr = prepare_stub_func(sym_name);
+						fprintf(stderr, "%s hooked symbol %s to symbol_not_linked_stub (LINKER_DIE_AT_RUNTIME)\n", si->name, sym_name);
+					}
+				}
 			}
 
 			if (sym_addr != 0) {
