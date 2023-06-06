@@ -460,6 +460,12 @@ bionic_pthread_condattr_init(bionic_condattr_t *attr)
    return pthread_condattr_init(attr->glibc);
 }
 
+int bionic_pthread_condattr_setclock(bionic_condattr_t *attr, clockid_t clock_id)
+{
+	assert(attr && IS_MAPPED(attr));
+	return pthread_condattr_setclock(attr->glibc, clock_id);
+}
+
 static void
 default_pthread_cond_init(bionic_cond_t *cond)
 {
