@@ -1,10 +1,15 @@
 #include <assert.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
+#define OPEN_NEEDS_MODE(flags) ((flags & O_CREAT) || (flags & O_TMPFILE))
+
 int bionic_open(const char *path, int oflag, ...)
 {
+	int mode;
+
 	// Hide TracerPid from /proc/self/status for hideous apps that check for debugger.
 	// Note, since /proc/self/status doesn't get updated anymore, this may break some stuff.
 	// XXX: Turn this ON/OFF with env var maybe?
@@ -36,5 +41,14 @@ int bionic_open(const char *path, int oflag, ...)
 		return fileno(faked);
 	}
 
-	return open(path, oflag);
+	if(OPEN_NEEDS_MODE(oflag)) {
+		va_list arg;
+		va_start(arg, oflag);
+		mode = va_arg(arg, int);
+		va_end(arg);
+
+		return open(path, oflag, mode);
+	} else {
+		return open(path, oflag);
+	}
 }
