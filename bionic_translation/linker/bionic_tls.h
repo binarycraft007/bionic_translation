@@ -46,7 +46,7 @@ __BEGIN_DECLS
  **/
 
 /* maximum number of elements in the TLS array */
-#define BIONIC_TLS_SLOTS            64
+#define BIONIC_TLS_SLOTS 64
 
 /* note that slot 0, called TLS_SLOT_SELF must point to itself.
  * this is required to implement thread-local storage with the x86
@@ -55,19 +55,19 @@ __BEGIN_DECLS
  */
 
 /* Well known TLS slots */
-#define TLS_SLOT_SELF               0
-#define TLS_SLOT_THREAD_ID          1
-#define TLS_SLOT_ERRNO              2
+#define TLS_SLOT_SELF	    0
+#define TLS_SLOT_THREAD_ID  1
+#define TLS_SLOT_ERRNO	    2
 
-#define TLS_SLOT_OPENGL_API         3
-#define TLS_SLOT_OPENGL             4
+#define TLS_SLOT_OPENGL_API 3
+#define TLS_SLOT_OPENGL	    4
 
 /* this slot is only used to pass information from the dynamic linker to
  * libc.so when the C library is loaded in to memory. The C runtime init
  * function will then clear it. Since its use is extremely temporary,
  * we reuse an existing location.
  */
-#define  TLS_SLOT_BIONIC_PREINIT    (TLS_SLOT_ERRNO+1)
+#define TLS_SLOT_BIONIC_PREINIT (TLS_SLOT_ERRNO + 1)
 
 /* small technical note: it is not possible to call pthread_setspecific
  * on keys that are <= TLS_SLOT_MAX_WELL_KNOWN, which is why it is set to
@@ -78,12 +78,12 @@ __BEGIN_DECLS
  * pthread_key_create() to initialize them. on the other hand, there is
  * no destructor associated to them (we might need to implement this later)
  */
-#define TLS_SLOT_MAX_WELL_KNOWN     TLS_SLOT_ERRNO
+#define TLS_SLOT_MAX_WELL_KNOWN TLS_SLOT_ERRNO
 
-#define TLS_DEFAULT_ALLOC_MAP       0x0000001F
+#define TLS_DEFAULT_ALLOC_MAP	0x0000001F
 
 /* set the Thread Local Storage, must contain at least BIONIC_TLS_SLOTS pointers */
-extern void __init_tls(void**  tls, void*  thread_info);
+extern void __init_tls(void **tls, void *thread_info);
 
 /* syscall only, do not call directly */
 extern int __set_tls(void *ptr);
@@ -102,39 +102,39 @@ extern int __set_tls(void *ptr);
  * C library, because we don't know where the corresponding code
  * is going to run.
  */
-#  ifdef LIBC_STATIC
+#ifdef LIBC_STATIC
 
 /* Use the kernel helper in static C library. */
-  typedef volatile void* (__kernel_get_tls_t)(void);
-#    define __get_tls() (*(__kernel_get_tls_t *)0xffff0fe0)()
+typedef volatile void *(__kernel_get_tls_t)(void);
+#define __get_tls() (*(__kernel_get_tls_t *)0xffff0fe0)()
 
-#  else /* !LIBC_STATIC */
+#else /* !LIBC_STATIC */
 /* Use optimized code path.
  * Note that HAVE_ARM_TLS_REGISTER is build-specific
  * (it must match your kernel configuration)
  */
-#    ifdef HAVE_ARM_TLS_REGISTER
- /* We can read the address directly from a coprocessor
-  * register, which avoids touching the data cache
-  * completely.
-  */
-#      define __get_tls() \
-    ({ register unsigned int __val asm("r0"); \
+#ifdef HAVE_ARM_TLS_REGISTER
+/* We can read the address directly from a coprocessor
+ * register, which avoids touching the data cache
+ * completely.
+ */
+#define __get_tls() \
+	({ register unsigned int __val asm("r0"); \
        asm ("mrc p15, 0, r0, c13, c0, 3" : "=r"(__val) ); \
        (volatile void*)__val; })
-#    else /* !HAVE_ARM_TLS_REGISTER */
- /* The kernel provides the address of the TLS at a fixed
-  * address of the magic page too.
-  */
-#      define __get_tls() ( *((volatile void **) 0xffff0ff0) )
-#    endif
-#  endif /* !LIBC_STATIC */
-#else /* !ARM */
-extern void*  __get_tls( void );
+#else /* !HAVE_ARM_TLS_REGISTER */
+/* The kernel provides the address of the TLS at a fixed
+ * address of the magic page too.
+ */
+#define __get_tls() (*((volatile void **)0xffff0ff0))
+#endif
+#endif /* !LIBC_STATIC */
+#else  /* !ARM */
+extern void *__get_tls(void);
 #endif /* !ARM */
 
 /* return the stack base and size, used by our malloc debugger */
-extern void*  __get_stack_base(int  *p_stack_size);
+extern void *__get_stack_base(int *p_stack_size);
 
 __END_DECLS
 

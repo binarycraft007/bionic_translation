@@ -27,25 +27,24 @@
  */
 
 #if LINKER_DEBUG
-#  define LINKER_DEBUG_PRINTF(...) PRINT(__VA_ARGS__)
+#define LINKER_DEBUG_PRINTF(...) PRINT(__VA_ARGS__)
 #else
-#  define LINKER_DEBUG_PRINTF(...)
+#define LINKER_DEBUG_PRINTF(...)
 #endif
-
 
 #include <linux/auxvec.h>
 
+#include <assert.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdnoreturn.h>
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <dlfcn.h>
 #include <sys/stat.h>
-#include <assert.h>
+#include <unistd.h>
 
 #include <pthread.h>
 
@@ -75,24 +74,23 @@
 #define SO_MAX 128
 
 /* Assume average path length of 64 and max 8 paths */
-#define LDPATH_BUFSIZE 512
-#define LDPATH_MAX 8
+#define LDPATH_BUFSIZE	  512
+#define LDPATH_MAX	  8
 
 #define LDPRELOAD_BUFSIZE 512
-#define LDPRELOAD_MAX 8
+#define LDPRELOAD_MAX	  8
 
 #ifdef __LP64__
-#define ELF_R_SYM ELF64_R_SYM
-#define ELF_R_TYPE ELF64_R_TYPE
+#define ELF_R_SYM   ELF64_R_SYM
+#define ELF_R_TYPE  ELF64_R_TYPE
 #define ELF_ST_BIND ELF64_ST_BIND
 #define ELF_ST_TYPE ELF64_ST_TYPE
 #else
-#define ELF_R_SYM ELF32_R_SYM
-#define ELF_R_TYPE ELF32_R_TYPE
+#define ELF_R_SYM   ELF32_R_SYM
+#define ELF_R_TYPE  ELF32_R_TYPE
 #define ELF_ST_BIND ELF32_ST_BIND
 #define ELF_ST_TYPE ELF32_ST_TYPE
 #endif
-
 
 /* >>> IMPORTANT NOTE - READ ME BEFORE MODIFYING <<<
  *
@@ -112,8 +110,7 @@
  *   headers provide versions that are negative...
  * - allocate space for soinfo structs dynamically instead of
  *   having a hard limit (64)
-*/
-
+ */
 
 static int apkenv_link_image(soinfo *si, unsigned wr_offset);
 
@@ -128,20 +125,19 @@ static soinfo *apkenv_somain; /* main process, always the one after apkenv_libdl
 
 bool do_we_have_this_handle(void *handle)
 {
-    soinfo *si;
-    for (si = apkenv_solist; si != NULL; si = si->next){
-        if(si == handle)
+	soinfo *si;
+	for (si = apkenv_solist; si != NULL; si = si->next) {
+		if (si == handle)
 			return true;
-    }
+	}
 
 	return false;
 }
 
-
 static inline int apkenv_validate_soinfo(soinfo *si)
 {
-    return (si >= apkenv_sopool && si < apkenv_sopool + SO_MAX) ||
-        si == &apkenv_libdl_info;
+	return (si >= apkenv_sopool && si < apkenv_sopool + SO_MAX) ||
+	       si == &apkenv_libdl_info;
 }
 
 static char apkenv_ldpaths_buf[LDPATH_BUFSIZE];
@@ -169,38 +165,38 @@ uint32_t apkenv_bitmask[4096];
 #endif
 
 #ifndef PT_ARM_EXIDX
-#define PT_ARM_EXIDX    0x70000001      /* .ARM.exidx segment */
+#define PT_ARM_EXIDX 0x70000001 /* .ARM.exidx segment */
 #endif
 
 static char apkenv_tmp_err_buf[768];
 static char apkenv___linker_dl_err_buf[768];
-#define DL_ERR(fmt, x...)                                                     \
-    do {                                                                      \
-        format_buffer(apkenv___linker_dl_err_buf, sizeof(apkenv___linker_dl_err_buf),            \
-                 "%s[%d]: " fmt, __func__, __LINE__, ##x);                    \
-        ERROR(fmt "\n", ##x);                                                      \
-    } while(0)
+#define DL_ERR(fmt, x...)                                                                     \
+	do {                                                                                  \
+		format_buffer(apkenv___linker_dl_err_buf, sizeof(apkenv___linker_dl_err_buf), \
+			      "%s[%d]: " fmt, __func__, __LINE__, ##x);                       \
+		ERROR(fmt "\n", ##x);                                                         \
+	} while (0)
 
 const char *apkenv_linker_get_error(void)
 {
-    return (const char *)&apkenv___linker_dl_err_buf[0];
+	return (const char *)&apkenv___linker_dl_err_buf[0];
 }
 
 enum {
-    WRAPPER_DYNHOOK,
-    WRAPPER_THUMB_INJECTION,
-    WRAPPER_UNHOOKED,
-    WRAPPER_ARM_INJECTION,
+	WRAPPER_DYNHOOK,
+	WRAPPER_THUMB_INJECTION,
+	WRAPPER_UNHOOKED,
+	WRAPPER_ARM_INJECTION,
 };
 
 /*
  * This function is an empty stub where GDB locates a breakpoint to get notified
  * about linker activity.
  */
-//extern void __attribute__((noinline)) rtld_db_dlactivity(void);
+// extern void __attribute__((noinline)) rtld_db_dlactivity(void);
 
-//static struct r_debug _r_debug = {1, NULL, &rtld_db_dlactivity,
-//                                  RT_CONSISTENT, 0};
+// static struct r_debug _r_debug = {1, NULL, &rtld_db_dlactivity,
+//                                   RT_CONSISTENT, 0};
 /* apkenv */
 // this will be filled by the main executable (either to &_r_debug, or to the address taken from DT_DEBUG)
 struct r_debug *_r_debug_ptr;
@@ -211,170 +207,173 @@ static struct link_map *apkenv_r_debug_head, *apkenv_r_debug_tail;
 
 static pthread_mutex_t apkenv__r_debug_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static void apkenv_insert_soinfo_into_debug_map(soinfo * info)
+static void apkenv_insert_soinfo_into_debug_map(soinfo *info)
 {
-    struct link_map * map;
+	struct link_map *map;
 
-    /* Copy the necessary fields into the debug structure.
-     */
-    map = &(info->linkmap);
-    map->l_addr = info->base;
-    map->l_name = info->fullpath;
-    map->l_ld = (void *)info->dynamic;
+	/* Copy the necessary fields into the debug structure.
+	 */
+	map = &(info->linkmap);
+	map->l_addr = info->base;
+	map->l_name = info->fullpath;
+	map->l_ld = (void *)info->dynamic;
 
-    /* Stick the new library at the end of the list.
-     * gdb tends to care more about libc than it does
-     * about leaf libraries, and ordering it this way
-     * reduces the back-and-forth over the wire.
-     */
-    if (apkenv_r_debug_tail) {
-        apkenv_r_debug_tail->l_next = map;
-        map->l_prev = apkenv_r_debug_tail;
-        map->l_next = 0;
-    } else {
-        /* apkenv: for sending to gdb */
-        apkenv_r_debug_head = map;
-        map->l_prev = 0;
-        map->l_next = 0;
-    }
-    apkenv_r_debug_tail = map;
+	/* Stick the new library at the end of the list.
+	 * gdb tends to care more about libc than it does
+	 * about leaf libraries, and ordering it this way
+	 * reduces the back-and-forth over the wire.
+	 */
+	if (apkenv_r_debug_tail) {
+		apkenv_r_debug_tail->l_next = map;
+		map->l_prev = apkenv_r_debug_tail;
+		map->l_next = 0;
+	} else {
+		/* apkenv: for sending to gdb */
+		apkenv_r_debug_head = map;
+		map->l_prev = 0;
+		map->l_next = 0;
+	}
+	apkenv_r_debug_tail = map;
 }
 
-static void apkenv_remove_soinfo_from_debug_map(soinfo * info)
+static void apkenv_remove_soinfo_from_debug_map(soinfo *info)
 {
-    struct link_map * map = &(info->linkmap);
+	struct link_map *map = &(info->linkmap);
 
-    if (apkenv_r_debug_tail == map)
-        apkenv_r_debug_tail = map->l_prev;
+	if (apkenv_r_debug_tail == map)
+		apkenv_r_debug_tail = map->l_prev;
 
-    if (map->l_prev) map->l_prev->l_next = map->l_next;
-    if (map->l_next) map->l_next->l_prev = map->l_prev;
+	if (map->l_prev)
+		map->l_prev->l_next = map->l_next;
+	if (map->l_next)
+		map->l_next->l_prev = map->l_prev;
 }
 
 void apkenv_notify_gdb_of_libraries(void);
 
-static void apkenv_notify_gdb_of_load(soinfo * info)
+static void apkenv_notify_gdb_of_load(soinfo *info)
 {
-    if (info->flags & FLAG_EXE) {
-        // GDB already knows about the main executable
-        return;
-    }
+	if (info->flags & FLAG_EXE) {
+		// GDB already knows about the main executable
+		return;
+	}
 
-    pthread_mutex_lock(&apkenv__r_debug_lock);
+	pthread_mutex_lock(&apkenv__r_debug_lock);
 
-    _r_debug_ptr->r_state = RT_ADD;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_ADD;
+	rtld_db_dlactivity();
 
-    apkenv_insert_soinfo_into_debug_map(info);
+	apkenv_insert_soinfo_into_debug_map(info);
 
-    _r_debug_ptr->r_state = RT_CONSISTENT;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_CONSISTENT;
+	rtld_db_dlactivity();
 
-    apkenv_notify_gdb_of_libraries();
-    pthread_mutex_unlock(&apkenv__r_debug_lock);
+	apkenv_notify_gdb_of_libraries();
+	pthread_mutex_unlock(&apkenv__r_debug_lock);
 }
 
-static void apkenv_notify_gdb_of_unload(soinfo * info)
+static void apkenv_notify_gdb_of_unload(soinfo *info)
 {
-    if (info->flags & FLAG_EXE) {
-        // GDB already knows about the main executable
-        return;
-    }
+	if (info->flags & FLAG_EXE) {
+		// GDB already knows about the main executable
+		return;
+	}
 
-    pthread_mutex_lock(&apkenv__r_debug_lock);
+	pthread_mutex_lock(&apkenv__r_debug_lock);
 
-    _r_debug_ptr->r_state = RT_DELETE;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_DELETE;
+	rtld_db_dlactivity();
 
-    apkenv_remove_soinfo_from_debug_map(info);
+	apkenv_remove_soinfo_from_debug_map(info);
 
-    _r_debug_ptr->r_state = RT_CONSISTENT;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_CONSISTENT;
+	rtld_db_dlactivity();
 
-    apkenv_notify_gdb_of_libraries();
-    pthread_mutex_unlock(&apkenv__r_debug_lock);
+	apkenv_notify_gdb_of_libraries();
+	pthread_mutex_unlock(&apkenv__r_debug_lock);
 }
 
 void apkenv_notify_gdb_of_libraries(void)
 {
-    struct link_map *tmap = _r_debug_ptr->r_map;
-    while (tmap->l_next != NULL)
-        tmap = tmap->l_next;
+	struct link_map *tmap = _r_debug_ptr->r_map;
+	while (tmap->l_next != NULL)
+		tmap = tmap->l_next;
 
-    _r_debug_ptr->r_state = RT_ADD;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_ADD;
+	rtld_db_dlactivity();
 
-    /* append android libs before notifying gdb */
-    tmap->l_next = apkenv_r_debug_head;
-    apkenv_r_debug_head->l_prev = tmap;
+	/* append android libs before notifying gdb */
+	tmap->l_next = apkenv_r_debug_head;
+	apkenv_r_debug_head->l_prev = tmap;
 
-    _r_debug_ptr->r_state = RT_CONSISTENT;
-    rtld_db_dlactivity();
+	_r_debug_ptr->r_state = RT_CONSISTENT;
+	rtld_db_dlactivity();
 
-    /* restore so that ld-linux doesn't freak out */
-    tmap->l_next = NULL;
+	/* restore so that ld-linux doesn't freak out */
+	tmap->l_next = NULL;
 }
 
 static soinfo *apkenv_alloc_info(const char *name)
 {
-    soinfo *si;
+	soinfo *si;
 
-    if(strlen(name) >= SOINFO_NAME_LEN) {
-        DL_ERR("%5d library name %s too long", apkenv_pid, name);
-        return NULL;
-    }
+	if (strlen(name) >= SOINFO_NAME_LEN) {
+		DL_ERR("%5d library name %s too long", apkenv_pid, name);
+		return NULL;
+	}
 
-    /* The apkenv_freelist is populated when we call apkenv_free_info(), which in turn is
-       done only by dlclose(), which is not likely to be used.
-    */
-    if (!apkenv_freelist) {
-        if(apkenv_socount == SO_MAX) {
-            DL_ERR("%5d too many libraries when loading %s", apkenv_pid, name);
-            return NULL;
-        }
-        apkenv_freelist = apkenv_sopool + apkenv_socount++;
-        apkenv_freelist->next = NULL;
-    }
+	/* The apkenv_freelist is populated when we call apkenv_free_info(), which in turn is
+	   done only by dlclose(), which is not likely to be used.
+	*/
+	if (!apkenv_freelist) {
+		if (apkenv_socount == SO_MAX) {
+			DL_ERR("%5d too many libraries when loading %s", apkenv_pid, name);
+			return NULL;
+		}
+		apkenv_freelist = apkenv_sopool + apkenv_socount++;
+		apkenv_freelist->next = NULL;
+	}
 
-    si = apkenv_freelist;
-    apkenv_freelist = apkenv_freelist->next;
+	si = apkenv_freelist;
+	apkenv_freelist = apkenv_freelist->next;
 
-    /* Make sure we get a clean block of soinfo */
-    memset(si, 0, sizeof(soinfo));
-    apkenv_strlcpy((char*) si->name, name, sizeof(si->name));
-    apkenv_sonext->next = si;
-    si->next = NULL;
-    si->refcount = 0;
-    apkenv_sonext = si;
+	/* Make sure we get a clean block of soinfo */
+	memset(si, 0, sizeof(soinfo));
+	apkenv_strlcpy((char *)si->name, name, sizeof(si->name));
+	apkenv_sonext->next = si;
+	si->next = NULL;
+	si->refcount = 0;
+	apkenv_sonext = si;
 
-    TRACE("%5d name %s: allocated soinfo @ %p\n", apkenv_pid, name, si);
-    return si;
+	TRACE("%5d name %s: allocated soinfo @ %p\n", apkenv_pid, name, si);
+	return si;
 }
 
 static void apkenv_free_info(soinfo *si)
 {
-    soinfo *prev = NULL, *trav;
+	soinfo *prev = NULL, *trav;
 
-    TRACE("%5d name %s: freeing soinfo @ %p\n", apkenv_pid, si->name, si);
+	TRACE("%5d name %s: freeing soinfo @ %p\n", apkenv_pid, si->name, si);
 
-    for(trav = apkenv_solist; trav != NULL; trav = trav->next){
-        if (trav == si)
-            break;
-        prev = trav;
-    }
-    if (trav == NULL) {
-        /* si was not ni apkenv_solist */
-        DL_ERR("%5d name %s is not in apkenv_solist!", apkenv_pid, si->name);
-        return;
-    }
+	for (trav = apkenv_solist; trav != NULL; trav = trav->next) {
+		if (trav == si)
+			break;
+		prev = trav;
+	}
+	if (trav == NULL) {
+		/* si was not ni apkenv_solist */
+		DL_ERR("%5d name %s is not in apkenv_solist!", apkenv_pid, si->name);
+		return;
+	}
 
-    /* prev will never be NULL, because the first entry in apkenv_solist is
-       always the static apkenv_libdl_info.
-    */
-    prev->next = si->next;
-    if (si == apkenv_sonext) apkenv_sonext = prev;
-    si->next = apkenv_freelist;
-    apkenv_freelist = si;
+	/* prev will never be NULL, because the first entry in apkenv_solist is
+	   always the static apkenv_libdl_info.
+	*/
+	prev->next = si->next;
+	if (si == apkenv_sonext)
+		apkenv_sonext = prev;
+	si->next = apkenv_freelist;
+	apkenv_freelist = si;
 }
 
 /* For a given PC, find the .so that it belongs to.
@@ -389,325 +388,327 @@ static void apkenv_free_info(soinfo *si)
 #if defined(__arm__)
 _Unwind_Ptr bionic_dl_unwind_find_exidx(_Unwind_Ptr pc, int *pcount)
 {
-    soinfo *si;
-    intptr_t addr = (intptr_t)pc;
-    for (si = apkenv_solist; si != 0; si = si->next){
-        if ((addr >= si->base) && (addr < (si->base + si->size))) {
-            *pcount = si->ARM_exidx_count;
-            return (_Unwind_Ptr)(si->base + (uint64_t)si->ARM_exidx);
-        }
-    }
-   *pcount = 0;
-    return NULL;
+	soinfo *si;
+	intptr_t addr = (intptr_t)pc;
+	for (si = apkenv_solist; si != 0; si = si->next) {
+		if ((addr >= si->base) && (addr < (si->base + si->size))) {
+			*pcount = si->ARM_exidx_count;
+			return (_Unwind_Ptr)(si->base + (uint64_t)si->ARM_exidx);
+		}
+	}
+	*pcount = 0;
+	return NULL;
 }
 #elif defined(__aarch64__) || defined(__i386__) || defined(__mips__) || defined(__x86_64__)
 /* Here, we only have to provide a callback to iterate across all the
  * loaded libraries. gcc_eh does the rest. */
-int
-bionic_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *info, size_t size, void *data),
-                void *data)
+int bionic_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *info, size_t size, void *data),
+			   void *data)
 {
-    soinfo *si;
-    struct dl_phdr_info dl_info;
-    int rv = 0;
-    for (si = apkenv_solist; si != NULL; si = si->next) {
-        dl_info.dlpi_addr = si->linkmap.l_addr;
-        dl_info.dlpi_name = si->linkmap.l_name;
-        dl_info.dlpi_phdr = (void*)si->phdr;
-        dl_info.dlpi_phnum = si->phnum;
-        if ((rv = cb(&dl_info, sizeof (struct dl_phdr_info), data)) != 0)
-            break;
-    }
-    return rv;
+	soinfo *si;
+	struct dl_phdr_info dl_info;
+	int rv = 0;
+	for (si = apkenv_solist; si != NULL; si = si->next) {
+		dl_info.dlpi_addr = si->linkmap.l_addr;
+		dl_info.dlpi_name = si->linkmap.l_name;
+		dl_info.dlpi_phdr = (void *)si->phdr;
+		dl_info.dlpi_phnum = si->phnum;
+		if ((rv = cb(&dl_info, sizeof(struct dl_phdr_info), data)) != 0)
+			break;
+	}
+	return rv;
 }
 #endif
 
-static ElfW(Sym) *apkenv__elf_lookup(soinfo *si, uint32_t hash, const char *name)
+static ElfW(Sym) * apkenv__elf_lookup(soinfo *si, uint32_t hash, const char *name)
 {
-    ElfW(Sym) *s;
-    ElfW(Sym) *symtab = si->symtab;
-    const char *strtab = si->strtab;
-    unsigned int n;
+	ElfW(Sym) * s;
+	ElfW(Sym) *symtab = si->symtab;
+	const char *strtab = si->strtab;
+	unsigned int n;
 
-    TRACE_TYPE(LOOKUP, "%5d SEARCH %s in %s@0x%016lx %08x %lu\n", apkenv_pid,
-               name, si->name, si->base, hash, hash % (si->nbucket ? si->nbucket : 1));
-    if (si->nbucket == 0) {
-        return NULL;
-    }
-    n = hash % si->nbucket;
+	TRACE_TYPE(LOOKUP, "%5d SEARCH %s in %s@0x%016lx %08x %lu\n", apkenv_pid,
+		   name, si->name, si->base, hash, hash % (si->nbucket ? si->nbucket : 1));
+	if (si->nbucket == 0) {
+		return NULL;
+	}
+	n = hash % si->nbucket;
 
-    for(n = si->bucket[hash % si->nbucket]; n != 0; n = si->chain[n]){
-        s = symtab + n;
-        if(strcmp(strtab + s->st_name, name)) continue;
+	for (n = si->bucket[hash % si->nbucket]; n != 0; n = si->chain[n]) {
+		s = symtab + n;
+		if (strcmp(strtab + s->st_name, name))
+			continue;
 
-            /* only concern ourselves with global and weak symbol definitions */
-        switch(ELF_ST_BIND(s->st_info)){
-        case STB_GLOBAL:
-        case STB_WEAK:
-                /* no section == undefined */
-            if(s->st_shndx == 0) continue;
+		/* only concern ourselves with global and weak symbol definitions */
+		switch (ELF_ST_BIND(s->st_info)) {
+		case STB_GLOBAL:
+		case STB_WEAK:
+			/* no section == undefined */
+			if (s->st_shndx == 0)
+				continue;
 
-            TRACE_TYPE(LOOKUP, "%5d FOUND %s in %s (%016lx) %lu\n", apkenv_pid,
-                       name, si->name, s->st_value, s->st_size);
-            return s;
-        }
-    }
+			TRACE_TYPE(LOOKUP, "%5d FOUND %s in %s (%016lx) %lu\n", apkenv_pid,
+				   name, si->name, s->st_value, s->st_size);
+			return s;
+		}
+	}
 
-    return NULL;
+	return NULL;
 }
 
 static uint32_t apkenv_elfhash(const char *_name)
 {
-    const unsigned char *name = (const unsigned char *) _name;
-    uint32_t h = 0, g;
+	const unsigned char *name = (const unsigned char *)_name;
+	uint32_t h = 0, g;
 
-    while(*name) {
-        h = (h << 4) + *name++;
-        g = h & 0xf0000000;
-        h ^= g;
-        h ^= g >> 24;
-    }
-    return h;
+	while (*name) {
+		h = (h << 4) + *name++;
+		g = h & 0xf0000000;
+		h ^= g;
+		h ^= g >> 24;
+	}
+	return h;
 }
 
 const char *apkenv_last_library_used = NULL;
 
 static ElfW(Sym) *
-apkenv__do_lookup(soinfo *si, const char *name, ElfW(Addr) *base)
+    apkenv__do_lookup(soinfo *si, const char *name, ElfW(Addr) * base)
 {
-    uint32_t elf_hash = apkenv_elfhash(name);
-    ElfW(Sym) *s;
-    soinfo *lsi = si;
-    int i;
+	uint32_t elf_hash = apkenv_elfhash(name);
+	ElfW(Sym) * s;
+	soinfo *lsi = si;
+	int i;
 
-    /* Look for symbols in the local scope (the object who is
-     * searching). This happens with C++ templates on i386 for some
-     * reason.
-     *
-     * Notes on weak symbols:
-     * The ELF specs are ambigious about treatment of weak definitions in
-     * dynamic linking.  Some systems return the first definition found
-     * and some the first non-weak definition.   This is system dependent.
-     * Here we return the first definition found for simplicity.  */
+	/* Look for symbols in the local scope (the object who is
+	 * searching). This happens with C++ templates on i386 for some
+	 * reason.
+	 *
+	 * Notes on weak symbols:
+	 * The ELF specs are ambigious about treatment of weak definitions in
+	 * dynamic linking.  Some systems return the first definition found
+	 * and some the first non-weak definition.   This is system dependent.
+	 * Here we return the first definition found for simplicity.  */
 
-    s = apkenv__elf_lookup(si, elf_hash, name);
-    if(s != NULL)
-        goto done;
+	s = apkenv__elf_lookup(si, elf_hash, name);
+	if (s != NULL)
+		goto done;
 
-    /* Next, look for it in the apkenv_preloads list */
-    for(i = 0; apkenv_preloads[i] != NULL; i++) {
-        lsi = apkenv_preloads[i];
-        s = apkenv__elf_lookup(lsi, elf_hash, name);
-        if(s != NULL)
-            goto done;
-    }
+	/* Next, look for it in the apkenv_preloads list */
+	for (i = 0; apkenv_preloads[i] != NULL; i++) {
+		lsi = apkenv_preloads[i];
+		s = apkenv__elf_lookup(lsi, elf_hash, name);
+		if (s != NULL)
+			goto done;
+	}
 
-    for(ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
-        if(d->d_tag == DT_NEEDED){
-            lsi = (soinfo *)d->d_un.d_val;
-            if (!apkenv_validate_soinfo(lsi)) {
-                DL_ERR("%5d bad DT_NEEDED pointer in %s",
-                       apkenv_pid, si->name);
-                return NULL;
-            }
+	for (ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+		if (d->d_tag == DT_NEEDED) {
+			lsi = (soinfo *)d->d_un.d_val;
+			if (!apkenv_validate_soinfo(lsi)) {
+				DL_ERR("%5d bad DT_NEEDED pointer in %s",
+				       apkenv_pid, si->name);
+				return NULL;
+			}
 
-            DEBUG("%5d %s: looking up %s in %s\n",
-                  apkenv_pid, si->name, name, lsi->name);
-            s = apkenv__elf_lookup(lsi, elf_hash, name);
-            if ((s != NULL) && (s->st_shndx != SHN_UNDEF))
-                goto done;
-        }
-    }
+			DEBUG("%5d %s: looking up %s in %s\n",
+			      apkenv_pid, si->name, name, lsi->name);
+			s = apkenv__elf_lookup(lsi, elf_hash, name);
+			if ((s != NULL) && (s->st_shndx != SHN_UNDEF))
+				goto done;
+		}
+	}
 
 #if ALLOW_SYMBOLS_FROM_MAIN
-    /* If we are resolving relocations while dlopen()ing a library, it's OK for
-     * the library to resolve a symbol that's defined in the executable itself,
-     * although this is rare and is generally a bad idea.
-     */
-    if (apkenv_somain) {
-        lsi = apkenv_somain;
-        DEBUG("%5d %s: looking up %s in executable %s\n",
-              apkenv_pid, si->name, name, lsi->name);
-        s = apkenv__elf_lookup(lsi, elf_hash, name);
-    }
+	/* If we are resolving relocations while dlopen()ing a library, it's OK for
+	 * the library to resolve a symbol that's defined in the executable itself,
+	 * although this is rare and is generally a bad idea.
+	 */
+	if (apkenv_somain) {
+		lsi = apkenv_somain;
+		DEBUG("%5d %s: looking up %s in executable %s\n",
+		      apkenv_pid, si->name, name, lsi->name);
+		s = apkenv__elf_lookup(lsi, elf_hash, name);
+	}
 #endif
 
 done:
-    if(s != NULL) {
-        TRACE_TYPE(LOOKUP, "%5d si %s sym %s s->st_value = 0x%016lx, "
-                   "found in %s, base = 0x%016lx\n",
-                   apkenv_pid, si->name, name, s->st_value, lsi->name, lsi->base);
-        apkenv_last_library_used = lsi->name;
-        *base = lsi->base;
-        return s;
-    }
+	if (s != NULL) {
+		TRACE_TYPE(LOOKUP, "%5d si %s sym %s s->st_value = 0x%016lx, "
+				   "found in %s, base = 0x%016lx\n",
+			   apkenv_pid, si->name, name, s->st_value, lsi->name, lsi->base);
+		apkenv_last_library_used = lsi->name;
+		*base = lsi->base;
+		return s;
+	}
 
-    return NULL;
+	return NULL;
 }
 
 /* This is used by dl_sym().  It performs symbol lookup only within the
    specified soinfo object and not in any of its dependencies.
  */
-ElfW(Sym) *apkenv_lookup_in_library(soinfo *si, const char *name)
+ElfW(Sym) * apkenv_lookup_in_library(soinfo *si, const char *name)
 {
-    return apkenv__elf_lookup(si, apkenv_elfhash(name), name);
+	return apkenv__elf_lookup(si, apkenv_elfhash(name), name);
 }
 
 /* This is used by dl_sym().  It performs a global symbol lookup.
  */
-ElfW(Sym) *apkenv_lookup(const char *name, soinfo **found, soinfo *start)
+ElfW(Sym) * apkenv_lookup(const char *name, soinfo **found, soinfo *start)
 {
-    uint32_t elf_hash = apkenv_elfhash(name);
-    ElfW(Sym) *s = NULL;
-    soinfo *si;
+	uint32_t elf_hash = apkenv_elfhash(name);
+	ElfW(Sym) *s = NULL;
+	soinfo *si;
 
-    if(start == NULL) {
-        start = apkenv_solist;
-    }
+	if (start == NULL) {
+		start = apkenv_solist;
+	}
 
-    for(si = start; (s == NULL) && (si != NULL); si = si->next)
-    {
-        if(si->flags & FLAG_ERROR)
-            continue;
-        s = apkenv__elf_lookup(si, elf_hash, name);
-        if (s != NULL) {
-            *found = si;
-            break;
-        }
-    }
+	for (si = start; (s == NULL) && (si != NULL); si = si->next) {
+		if (si->flags & FLAG_ERROR)
+			continue;
+		s = apkenv__elf_lookup(si, elf_hash, name);
+		if (s != NULL) {
+			*found = si;
+			break;
+		}
+	}
 
-    if(s != NULL) {
-        TRACE_TYPE(LOOKUP, "%5d %s s->st_value = 0x%016lx, "
-                   "si->base = 0x%016lx\n", apkenv_pid, name, s->st_value, si->base);
-        return s;
-    }
+	if (s != NULL) {
+		TRACE_TYPE(LOOKUP, "%5d %s s->st_value = 0x%016lx, "
+				   "si->base = 0x%016lx\n",
+			   apkenv_pid, name, s->st_value, si->base);
+		return s;
+	}
 
-    return NULL;
+	return NULL;
 }
 
 soinfo *apkenv_find_containing_library(const void *addr)
 {
-    soinfo *si;
+	soinfo *si;
 
-    for(si = apkenv_solist; si != NULL; si = si->next)
-    {
-        if((intptr_t)addr >= si->base && (intptr_t)addr - si->base < si->size) {
-            return si;
-        }
-    }
+	for (si = apkenv_solist; si != NULL; si = si->next) {
+		if ((intptr_t)addr >= si->base && (intptr_t)addr - si->base < si->size) {
+			return si;
+		}
+	}
 
-    return NULL;
+	return NULL;
 }
 
-ElfW(Sym) *apkenv_find_containing_symbol(const void *addr, soinfo *si)
+ElfW(Sym) * apkenv_find_containing_symbol(const void *addr, soinfo *si)
 {
-    unsigned int i;
-    intptr_t soaddr = (intptr_t)addr - si->base;
+	unsigned int i;
+	intptr_t soaddr = (intptr_t)addr - si->base;
 
-    /* Search the library's symbol table for any defined symbol which
-     * contains this address */
-    for(i=0; i<si->nchain; i++) {
-        ElfW(Sym) *sym = &si->symtab[i];
+	/* Search the library's symbol table for any defined symbol which
+	 * contains this address */
+	for (i = 0; i < si->nchain; i++) {
+		ElfW(Sym) *sym = &si->symtab[i];
 
-        if(sym->st_shndx != SHN_UNDEF &&
-           soaddr >= sym->st_value &&
-           soaddr < sym->st_value + sym->st_size) {
-            return sym;
-        }
-    }
+		if (sym->st_shndx != SHN_UNDEF &&
+		    soaddr >= sym->st_value &&
+		    soaddr < sym->st_value + sym->st_size) {
+			return sym;
+		}
+	}
 
-    return NULL;
+	return NULL;
 }
 
 #if 0
 static void dump(soinfo *si)
 {
-    ElfW(Sym) *s = si->symtab;
-    unsigned n;
+	ElfW(Sym) *s = si->symtab;
+	unsigned n;
 
-    for(n = 0; n < si->nchain; n++) {
-        TRACE("%5d %04d> %016lx: %02x %04x %016lx %016lx %s\n", apkenv_pid, n, s,
-               s->st_info, s->st_shndx, s->st_value, s->st_size,
-               si->strtab + s->st_name);
-        s++;
-    }
+	for(n = 0; n < si->nchain; n++) {
+		TRACE("%5d %04d> %016lx: %02x %04x %016lx %016lx %s\n", apkenv_pid, n, s,
+		       s->st_info, s->st_shndx, s->st_value, s->st_size,
+		       si->strtab + s->st_name);
+		s++;
+	}
 }
 #endif
 
 #define SOPATH_MAX 8
 
 static const char *apkenv_sopaths[SOPATH_MAX + 1] = {
-    "/vendor/lib",
-    "/system/lib",
-    // APKENV_PREFIX "/lib/" APKENV_TARGET "/bionic/",
+	"/vendor/lib",
+	"/system/lib",
+	/* APKENV_PREFIX "/lib/" APKENV_TARGET "/bionic/", */
 #ifdef APKENV_LOCAL_BIONIC_PATH
-    APKENV_LOCAL_BIONIC_PATH,
+	APKENV_LOCAL_BIONIC_PATH,
 #endif
 };
 
 int apkenv_add_sopath(const char *path)
 {
-    int i;
-    for (i = 0; i < SOPATH_MAX; i++) {
-        if (apkenv_sopaths[i] == NULL) {
-            apkenv_sopaths[i] = path;
-            return 0;
-        }
+	int i;
+	for (i = 0; i < SOPATH_MAX; i++) {
+		if (apkenv_sopaths[i] == NULL) {
+			apkenv_sopaths[i] = path;
+			return 0;
+		}
 
-        if (strcmp(path, apkenv_sopaths[i]) == 0)
-            return 0;
-    }
+		if (strcmp(path, apkenv_sopaths[i]) == 0)
+			return 0;
+	}
 
-    ERROR("too many apkenv_sopaths\n");
-    return -1;
+	ERROR("too many apkenv_sopaths\n");
+	return -1;
 }
 
 static int apkenv__open_lib(const char *name)
 {
-    int fd;
-    struct stat filestat;
+	int fd;
+	struct stat filestat;
 
 	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> [%s]\n", name);
 
-    if ((stat(name, &filestat) >= 0) && S_ISREG(filestat.st_mode)) {
-        if ((fd = open(name, O_RDONLY)) >= 0)
-            return fd;
-    }
+	if ((stat(name, &filestat) >= 0) && S_ISREG(filestat.st_mode)) {
+		if ((fd = open(name, O_RDONLY)) >= 0)
+			return fd;
+	}
 
-    return -1;
+	return -1;
 }
 
 static int apkenv_open_library(const char *name, char *fullpath)
 {
-    int fd;
-    char buf[512];
-    const char **path;
-    int n;
+	int fd;
+	char buf[512];
+	const char **path;
+	int n;
 
 	char *path_normalized_name;
 	char *tmp_name;
 
-    TRACE("[ %5d opening %s ]\n", apkenv_pid, name);
+	TRACE("[ %5d opening %s ]\n", apkenv_pid, name);
 
-    if(name == 0) return -1;
-    if(strlen(name) > 256) return -1;
+	if (name == 0)
+		return -1;
+	if (strlen(name) > 256)
+		return -1;
 
-    strcpy(fullpath, name);
+	strcpy(fullpath, name);
 
 	tmp_name = strdup(name);
 	path_normalized_name = realpath(dirname(tmp_name), NULL);
 	free(tmp_name);
 
-    for (path = apkenv_ldpaths; *path; path++) {
+	for (path = apkenv_ldpaths; *path; path++) {
 		char *ldpath_normalized = realpath(*path, NULL);
-		if(path_normalized_name && ldpath_normalized) {
+		if (path_normalized_name && ldpath_normalized) {
 			TRACE("----> '%s' vs '%s'\n", path_normalized_name, ldpath_normalized);
-		    TRACE("[ %5d comparing '%s' against '%s' to see if the libary is in BIONIC_LD_LIBRARY_PATH ]\n", apkenv_pid, path_normalized_name, ldpath_normalized);
-			if(!strcmp(path_normalized_name, ldpath_normalized)) {
-		        if ((fd = apkenv__open_lib(name)) >= 0) {
+			TRACE("[ %5d comparing '%s' against '%s' to see if the libary is in BIONIC_LD_LIBRARY_PATH ]\n", apkenv_pid, path_normalized_name, ldpath_normalized);
+			if (!strcmp(path_normalized_name, ldpath_normalized)) {
+				if ((fd = apkenv__open_lib(name)) >= 0) {
 					free(ldpath_normalized);
 					free(path_normalized_name);
-				    return fd;
+					return fd;
 				}
 			}
 			free(ldpath_normalized);
@@ -715,39 +716,39 @@ static int apkenv_open_library(const char *name, char *fullpath)
 			WARN("realpath returned NULL: can't compare path_normalized_name('%s') vs ldpath_normalized('%s')\n", path_normalized_name, ldpath_normalized);
 		}
 
-        n = format_buffer(buf, sizeof(buf), "%s/%s", *path, name);
-        if (n < 0 || n >= (int)sizeof(buf)) {
-            WARN("Ignoring very long library path: %s/%s\n", *path, name);
-            continue;
-        }
-        if ((fd = apkenv__open_lib(buf)) >= 0) {
-            strcpy(fullpath, buf);
-			if(path_normalized_name)
+		n = format_buffer(buf, sizeof(buf), "%s/%s", *path, name);
+		if (n < 0 || n >= (int)sizeof(buf)) {
+			WARN("Ignoring very long library path: %s/%s\n", *path, name);
+			continue;
+		}
+		if ((fd = apkenv__open_lib(buf)) >= 0) {
+			strcpy(fullpath, buf);
+			if (path_normalized_name)
 				free(path_normalized_name);
-            return fd;
-        }
-    }
+			return fd;
+		}
+	}
 
 	free(path_normalized_name);
 
-    for (path = apkenv_sopaths; *path; path++) {
-        n = format_buffer(buf, sizeof(buf), "%s/%s", *path, name);
-        if (n < 0 || n >= (int)sizeof(buf)) {
-            WARN("Ignoring very long library path: %s/%s\n", *path, name);
-            continue;
-        }
-        if ((fd = apkenv__open_lib(buf)) >= 0) {
-            strcpy(fullpath, buf);
-            return fd;
-        }
-    }
+	for (path = apkenv_sopaths; *path; path++) {
+		n = format_buffer(buf, sizeof(buf), "%s/%s", *path, name);
+		if (n < 0 || n >= (int)sizeof(buf)) {
+			WARN("Ignoring very long library path: %s/%s\n", *path, name);
+			continue;
+		}
+		if ((fd = apkenv__open_lib(buf)) >= 0) {
+			strcpy(fullpath, buf);
+			return fd;
+		}
+	}
 
-    return -1;
+	return -1;
 }
 
 typedef struct {
-    long mmap_addr;
-    char tag[4]; /* 'P', 'R', 'E', ' ' */
+	long mmap_addr;
+	char tag[4]; /* 'P', 'R', 'E', ' ' */
 } prelink_info_t;
 
 /* Returns the requested base address if the library is prelinked,
@@ -755,26 +756,26 @@ typedef struct {
 static unsigned long
 apkenv_is_prelinked(int fd, const char *name)
 {
-    off_t sz;
-    prelink_info_t info;
+	off_t sz;
+	prelink_info_t info;
 
-    sz = lseek(fd, -sizeof(prelink_info_t), SEEK_END);
-    if (sz < 0) {
-        DL_ERR("lseek() failed!");
-        return 0;
-    }
+	sz = lseek(fd, -sizeof(prelink_info_t), SEEK_END);
+	if (sz < 0) {
+		DL_ERR("lseek() failed!");
+		return 0;
+	}
 
-    if (read(fd, &info, sizeof(info)) != sizeof(info)) {
-        WARN("Could not read prelink_info_t structure for `%s`\n", name);
-        return 0;
-    }
+	if (read(fd, &info, sizeof(info)) != sizeof(info)) {
+		WARN("Could not read prelink_info_t structure for `%s`\n", name);
+		return 0;
+	}
 
-    if (strncmp(info.tag, "PRE ", 4)) {
-        WARN("`%s` is not a prelinked library\n", name);
-        return 0;
-    }
+	if (strncmp(info.tag, "PRE ", 4)) {
+		WARN("`%s` is not a prelinked library\n", name);
+		return 0;
+	}
 
-    return (unsigned long)info.mmap_addr;
+	return (unsigned long)info.mmap_addr;
 }
 
 /* apkenv_verify_elf_object
@@ -789,22 +790,25 @@ apkenv_is_prelinked(int fd, const char *name)
 static int
 apkenv_verify_elf_object(void *base, const char *name)
 {
-    ElfW(Ehdr) *hdr = (ElfW(Ehdr) *) base;
+	ElfW(Ehdr) *hdr = (ElfW(Ehdr) *)base;
 
-    if (hdr->e_ident[EI_MAG0] != ELFMAG0) return -1;
-    if (hdr->e_ident[EI_MAG1] != ELFMAG1) return -1;
-    if (hdr->e_ident[EI_MAG2] != ELFMAG2) return -1;
-    if (hdr->e_ident[EI_MAG3] != ELFMAG3) return -1;
+	if (hdr->e_ident[EI_MAG0] != ELFMAG0)
+		return -1;
+	if (hdr->e_ident[EI_MAG1] != ELFMAG1)
+		return -1;
+	if (hdr->e_ident[EI_MAG2] != ELFMAG2)
+		return -1;
+	if (hdr->e_ident[EI_MAG3] != ELFMAG3)
+		return -1;
 
-    /* TODO: make this proper for aarch64 / x86_64 */
-/*#ifdef ANDROID_ARM_LINKER
-    if (hdr->e_machine != EM_ARM) return -1;
-#elif defined(ANDROID_X86_LINKER)
-    if (hdr->e_machine != EM_386) return -1;
-#endif*/
-    return 0;
+	/* TODO: make this proper for aarch64 / x86_64 */
+	/*#ifdef ANDROID_ARM_LINKER
+	    if (hdr->e_machine != EM_ARM) return -1;
+	#elif defined(ANDROID_X86_LINKER)
+	    if (hdr->e_machine != EM_386) return -1;
+	#endif*/
+	return 0;
 }
-
 
 /* apkenv_get_lib_extents
  *      Retrieves the base (*base) address where the ELF object should be
@@ -830,56 +834,56 @@ apkenv_verify_elf_object(void *base, const char *name)
 static intptr_t
 apkenv_get_lib_extents(int fd, const char *name, void *__hdr, size_t *total_sz)
 {
-    intptr_t req_base;
-    intptr_t min_vaddr = 0xffffffff;
-    intptr_t max_vaddr = 0;
-    unsigned char *_hdr = (unsigned char *)__hdr;
-    ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *)_hdr;
-    ElfW(Phdr) *phdr;
-    int cnt;
+	intptr_t req_base;
+	intptr_t min_vaddr = 0xffffffff;
+	intptr_t max_vaddr = 0;
+	unsigned char *_hdr = (unsigned char *)__hdr;
+	ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *)_hdr;
+	ElfW(Phdr) * phdr;
+	int cnt;
 
-    TRACE("[ %5d Computing extents for '%s'. ]\n", apkenv_pid, name);
-    if (apkenv_verify_elf_object(_hdr, name) < 0) {
-        DL_ERR("%5d - %s is not a valid ELF object", apkenv_pid, name);
-        return (intptr_t)-1;
-    }
+	TRACE("[ %5d Computing extents for '%s'. ]\n", apkenv_pid, name);
+	if (apkenv_verify_elf_object(_hdr, name) < 0) {
+		DL_ERR("%5d - %s is not a valid ELF object", apkenv_pid, name);
+		return (intptr_t)-1;
+	}
 
-    req_base = (intptr_t) apkenv_is_prelinked(fd, name);
-    if (req_base == (intptr_t)-1)
-        return -1;
-    else if (req_base != 0) {
-        TRACE("[ %5d - Prelinked library '%s' requesting base @ 0x%016lx ]\n",
-              apkenv_pid, name, req_base);
-    } else {
-        TRACE("[ %5d - Non-prelinked library '%s' found. ]\n", apkenv_pid, name);
-    }
+	req_base = (intptr_t)apkenv_is_prelinked(fd, name);
+	if (req_base == (intptr_t)-1)
+		return -1;
+	else if (req_base != 0) {
+		TRACE("[ %5d - Prelinked library '%s' requesting base @ 0x%016lx ]\n",
+		      apkenv_pid, name, req_base);
+	} else {
+		TRACE("[ %5d - Non-prelinked library '%s' found. ]\n", apkenv_pid, name);
+	}
 
-    phdr = (ElfW(Phdr) *)(_hdr + ehdr->e_phoff);
+	phdr = (ElfW(Phdr) *)(_hdr + ehdr->e_phoff);
 
-    /* find the min/max p_vaddrs from all the PT_LOAD segments so we can
-     * get the range. */
-    for (cnt = 0; cnt < ehdr->e_phnum; ++cnt, ++phdr) {
-        if (phdr->p_type == PT_LOAD) {
-            if ((phdr->p_vaddr + phdr->p_memsz) > max_vaddr)
-                max_vaddr = phdr->p_vaddr + phdr->p_memsz;
-            if (phdr->p_vaddr < min_vaddr)
-                min_vaddr = phdr->p_vaddr;
-        }
-    }
+	/* find the min/max p_vaddrs from all the PT_LOAD segments so we can
+	 * get the range. */
+	for (cnt = 0; cnt < ehdr->e_phnum; ++cnt, ++phdr) {
+		if (phdr->p_type == PT_LOAD) {
+			if ((phdr->p_vaddr + phdr->p_memsz) > max_vaddr)
+				max_vaddr = phdr->p_vaddr + phdr->p_memsz;
+			if (phdr->p_vaddr < min_vaddr)
+				min_vaddr = phdr->p_vaddr;
+		}
+	}
 
-    if ((min_vaddr == 0xffffffff) && (max_vaddr == 0)) {
-        DL_ERR("%5d - No loadable segments found in %s.", apkenv_pid, name);
-        return (intptr_t)-1;
-    }
+	if ((min_vaddr == 0xffffffff) && (max_vaddr == 0)) {
+		DL_ERR("%5d - No loadable segments found in %s.", apkenv_pid, name);
+		return (intptr_t)-1;
+	}
 
-    /* truncate min_vaddr down to page boundary */
-    min_vaddr &= ~PAGE_MASK;
+	/* truncate min_vaddr down to page boundary */
+	min_vaddr &= ~PAGE_MASK;
 
-    /* round max_vaddr up to the next page */
-    max_vaddr = (max_vaddr + PAGE_SIZE - 1) & ~PAGE_MASK;
+	/* round max_vaddr up to the next page */
+	max_vaddr = (max_vaddr + PAGE_SIZE - 1) & ~PAGE_MASK;
 
-    *total_sz = (max_vaddr - min_vaddr);
-    return (intptr_t)req_base;
+	*total_sz = (max_vaddr - min_vaddr);
+	return (intptr_t)req_base;
 }
 
 /* apkenv_reserve_mem_region
@@ -900,58 +904,59 @@ apkenv_get_lib_extents(int fd, const char *name, void *__hdr, size_t *total_sz)
 
 static int apkenv_reserve_mem_region(soinfo *si)
 {
-    void *base = mmap((void *)si->base, si->size, PROT_NONE,
-                      MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (base == MAP_FAILED) {
-        DL_ERR("%5d can NOT map (%sprelinked) library '%s' at 0x%016lx "
-              "as requested, will try general pool: %d (%s)",
-              apkenv_pid, (si->base ? "" : "non-"), si->name, si->base,
-              errno, strerror(errno));
-        return -1;
-    } else if (base != (void *)si->base) {
-        DL_ERR("OOPS: %5d %sprelinked library '%s' mapped at 0x%016lx, "
-              "not at 0x%016lx", apkenv_pid, (si->base ? "" : "non-"),
-              si->name, (intptr_t)base, si->base);
-        munmap(base, si->size);
-        return -1;
-    }
-    return 0;
+	void *base = mmap((void *)si->base, si->size, PROT_NONE,
+			  MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (base == MAP_FAILED) {
+		DL_ERR("%5d can NOT map (%sprelinked) library '%s' at 0x%016lx "
+		       "as requested, will try general pool: %d (%s)",
+		       apkenv_pid, (si->base ? "" : "non-"), si->name, si->base,
+		       errno, strerror(errno));
+		return -1;
+	} else if (base != (void *)si->base) {
+		DL_ERR("OOPS: %5d %sprelinked library '%s' mapped at 0x%016lx, "
+		       "not at 0x%016lx",
+		       apkenv_pid, (si->base ? "" : "non-"),
+		       si->name, (intptr_t)base, si->base);
+		munmap(base, si->size);
+		return -1;
+	}
+	return 0;
 }
 
 static int apkenv_alloc_mem_region(soinfo *si)
 {
-    if (si->base) {
-        /* Attempt to mmap a prelinked library. */
-        return apkenv_reserve_mem_region(si);
-    }
+	if (si->base) {
+		/* Attempt to mmap a prelinked library. */
+		return apkenv_reserve_mem_region(si);
+	}
 
-    /* This is not a prelinked library, so we use the kernel's default
-       allocator.
-    */
+	/* This is not a prelinked library, so we use the kernel's default
+	   allocator.
+	*/
 
-    void *base = mmap(NULL, si->size, PROT_NONE,
-                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (base == MAP_FAILED) {
-        DL_ERR("%5d mmap of library '%s' failed: %d (%s)\n",
-              apkenv_pid, si->name,
-              errno, strerror(errno));
-        goto err;
-    }
-    si->base = (intptr_t) base;
-    PRINT("%5d mapped library '%s' to %016lx via kernel allocator.\n",
-          apkenv_pid, si->name, si->base);
-    return 0;
+	void *base = mmap(NULL, si->size, PROT_NONE,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (base == MAP_FAILED) {
+		DL_ERR("%5d mmap of library '%s' failed: %d (%s)\n",
+		       apkenv_pid, si->name,
+		       errno, strerror(errno));
+		goto err;
+	}
+	si->base = (intptr_t)base;
+	PRINT("%5d mapped library '%s' to %016lx via kernel allocator.\n",
+	      apkenv_pid, si->name, si->base);
+	return 0;
 
 err:
-    DL_ERR("OOPS: %5d cannot map library '%s'. no vspace available.",
-          apkenv_pid, si->name);
-    return -1;
+	DL_ERR("OOPS: %5d cannot map library '%s'. no vspace available.",
+	       apkenv_pid, si->name);
+	return -1;
 }
 
-#define MAYBE_MAP_FLAG(x,from,to)    (((x) & (from)) ? (to) : 0)
-#define PFLAGS_TO_PROT(x)            (MAYBE_MAP_FLAG((x), PF_X, PROT_EXEC) | \
-                                      MAYBE_MAP_FLAG((x), PF_R, PROT_READ) | \
-                                      MAYBE_MAP_FLAG((x), PF_W, PROT_WRITE))
+#define MAYBE_MAP_FLAG(x, from, to) (((x) & (from)) ? (to) : 0)
+#define PFLAGS_TO_PROT(x)	    (MAYBE_MAP_FLAG((x), PF_X, PROT_EXEC) | \
+			   MAYBE_MAP_FLAG((x), PF_R, PROT_READ) |           \
+			   MAYBE_MAP_FLAG((x), PF_W, PROT_WRITE))
 /* apkenv_load_segments
  *
  *     This function loads all the loadable (PT_LOAD) segments into memory
@@ -969,179 +974,186 @@ err:
 static int
 apkenv_load_segments(int fd, void *header, soinfo *si)
 {
-    ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *)header;
-    ElfW(Phdr) *phdr = (ElfW(Phdr) *)((unsigned char *)header + ehdr->e_phoff);
-    ElfW(Addr) base = (ElfW(Addr)) si->base;
-    int cnt;
-    size_t len;
-    ElfW(Addr) tmp;
-    unsigned char *pbase;
-    unsigned char *extra_base;
-    size_t extra_len;
-    size_t total_sz = 0;
+	ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *)header;
+	ElfW(Phdr) *phdr = (ElfW(Phdr) *)((unsigned char *)header + ehdr->e_phoff);
+	ElfW(Addr) base = (ElfW(Addr))si->base;
+	int cnt;
+	size_t len;
+	ElfW(Addr) tmp;
+	unsigned char *pbase;
+	unsigned char *extra_base;
+	size_t extra_len;
+	size_t total_sz = 0;
 
-    si->wrprotect_start = 0xffffffff;
-    si->wrprotect_end = 0;
+	si->wrprotect_start = 0xffffffff;
+	si->wrprotect_end = 0;
 
-    TRACE("[ %5d - Begin loading segments for '%s' @ 0x%016lx ]\n",
-          apkenv_pid, si->name, (intptr_t)si->base);
-    /* Now go through all the PT_LOAD segments and map them into memory
-     * at the appropriate locations. */
-    for (cnt = 0; cnt < ehdr->e_phnum; ++cnt, ++phdr) {
-        if (phdr->p_type == PT_LOAD) {
-            DEBUG_DUMP_PHDR(phdr, "PT_LOAD", apkenv_pid);
-            /* we want to map in the segment on a page boundary */
-            tmp = base + (phdr->p_vaddr & (~PAGE_MASK));
-            /* add the # of bytes we masked off above to the total length. */
-            len = phdr->p_filesz + (phdr->p_vaddr & PAGE_MASK);
+	TRACE("[ %5d - Begin loading segments for '%s' @ 0x%016lx ]\n",
+	      apkenv_pid, si->name, (intptr_t)si->base);
+	/* Now go through all the PT_LOAD segments and map them into memory
+	 * at the appropriate locations. */
+	for (cnt = 0; cnt < ehdr->e_phnum; ++cnt, ++phdr) {
+		if (phdr->p_type == PT_LOAD) {
+			DEBUG_DUMP_PHDR(phdr, "PT_LOAD", apkenv_pid);
+			/* we want to map in the segment on a page boundary */
+			tmp = base + (phdr->p_vaddr & (~PAGE_MASK));
+			/* add the # of bytes we masked off above to the total length. */
+			len = phdr->p_filesz + (phdr->p_vaddr & PAGE_MASK);
 
-            TRACE("[ %d - Trying to load segment from '%s' @ 0x%016lx "
-                  "(0x%016lx). p_vaddr=0x%016lx p_offset=0x%016lx ]\n", apkenv_pid, si->name,
-                  tmp, len, phdr->p_vaddr, phdr->p_offset);
-            pbase = mmap((void *)tmp, len, PFLAGS_TO_PROT(phdr->p_flags),
-                         MAP_PRIVATE | MAP_FIXED, fd,
-                         phdr->p_offset & (~PAGE_MASK));
-            if (pbase == MAP_FAILED) {
-                DL_ERR("%d failed to map segment from '%s' @ 0x%016lx (0x%016lx). "
-                      "p_vaddr=0x%016lx p_offset=0x%016lx", apkenv_pid, si->name,
-                      tmp, len, phdr->p_vaddr, phdr->p_offset);
-                goto fail;
-            }
+			TRACE("[ %d - Trying to load segment from '%s' @ 0x%016lx "
+			      "(0x%016lx). p_vaddr=0x%016lx p_offset=0x%016lx ]\n",
+			      apkenv_pid, si->name,
+			      tmp, len, phdr->p_vaddr, phdr->p_offset);
+			pbase = mmap((void *)tmp, len, PFLAGS_TO_PROT(phdr->p_flags),
+				     MAP_PRIVATE | MAP_FIXED, fd,
+				     phdr->p_offset & (~PAGE_MASK));
+			if (pbase == MAP_FAILED) {
+				DL_ERR("%d failed to map segment from '%s' @ 0x%016lx (0x%016lx). "
+				       "p_vaddr=0x%016lx p_offset=0x%016lx",
+				       apkenv_pid, si->name,
+				       tmp, len, phdr->p_vaddr, phdr->p_offset);
+				goto fail;
+			}
 
-            /* If 'len' didn't end on page boundary, and it's a writable
-             * segment, zero-fill the rest. */
-            if ((len & PAGE_MASK) && (phdr->p_flags & PF_W))
-                memset((void *)(pbase + len), 0, PAGE_SIZE - (len & PAGE_MASK));
+			/* If 'len' didn't end on page boundary, and it's a writable
+			 * segment, zero-fill the rest. */
+			if ((len & PAGE_MASK) && (phdr->p_flags & PF_W))
+				memset((void *)(pbase + len), 0, PAGE_SIZE - (len & PAGE_MASK));
 
-            /* Check to see if we need to extend the map for this segment to
-             * cover the diff between filesz and memsz (i.e. for bss).
-             *
-             *  base           _+---------------------+  page boundary
-             *                  .                     .
-             *                  |                     |
-             *                  .                     .
-             *  pbase          _+---------------------+  page boundary
-             *                  |                     |
-             *                  .                     .
-             *  base + p_vaddr _|                     |
-             *                  . \          \        .
-             *                  . | filesz   |        .
-             *  pbase + len    _| /          |        |
-             *     <0 pad>      .            .        .
-             *  extra_base     _+------------|--------+  page boundary
-             *               /  .            .        .
-             *               |  .            .        .
-             *               |  +------------|--------+  page boundary
-             *  extra_len->  |  |            |        |
-             *               |  .            | memsz  .
-             *               |  .            |        .
-             *               \ _|            /        |
-             *                  .                     .
-             *                  |                     |
-             *                 _+---------------------+  page boundary
-             */
-            tmp = (ElfW(Addr))(((intptr_t)pbase + len + PAGE_SIZE - 1) &
-                                    (~PAGE_MASK));
-            if (tmp < (base + phdr->p_vaddr + phdr->p_memsz)) {
-                extra_len = base + phdr->p_vaddr + phdr->p_memsz - tmp;
-                TRACE("[ %5d - Need to extend segment from '%s' @ 0x%016lx "
-                      "(0x%016lx) ]\n", apkenv_pid, si->name, tmp, extra_len);
-                /* map in the extra page(s) as anonymous into the range.
-                 * This is probably not necessary as we already mapped in
-                 * the entire region previously, but we just want to be
-                 * sure. This will also set the right flags on the region
-                 * (though we can probably accomplish the same thing with
-                 * mprotect).
-                 */
-                extra_base = mmap((void *)tmp, extra_len,
-                                  PFLAGS_TO_PROT(phdr->p_flags),
-                                  MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS,
-                                  -1, 0);
-                if (extra_base == MAP_FAILED) {
-                    DL_ERR("[ %5d - failed to extend segment from '%s' @ 0x%016lx"
-                           " (0x%016lx) ]", apkenv_pid, si->name, tmp,
-                          extra_len);
-                    goto fail;
-                }
-                /* TODO: Check if we need to memset-0 this region.
-                 * Anonymous mappings are zero-filled copy-on-writes, so we
-                 * shouldn't need to. */
-                TRACE("[ %5d - Segment from '%s' extended @ 0x%016lx "
-                      "(0x%016lx)\n", apkenv_pid, si->name, (uint64_t)extra_base,
-                      extra_len);
-            }
-            /* set the len here to show the full extent of the segment we
-             * just loaded, mostly for debugging */
-            len = (((intptr_t)base + phdr->p_vaddr + phdr->p_memsz +
-                    PAGE_SIZE - 1) & (~PAGE_MASK)) - (intptr_t)pbase;
-            TRACE("[ %5d - Successfully loaded segment from '%s' @ 0x%016lx "
-                  "(0x%016lx). p_vaddr=0x%016lx p_offset=0x%016lx\n", apkenv_pid, si->name,
-                  (uint64_t)pbase, len, phdr->p_vaddr, phdr->p_offset);
-            total_sz += len;
-            /* Make the section writable just in case we'll have to write to
-             * it during relocation (i.e. text segment). However, we will
-             * remember what range of addresses should be write protected.
-             *
-             */
-            if (!(phdr->p_flags & PF_W)) {
-                if ((intptr_t)pbase < si->wrprotect_start)
-                    si->wrprotect_start = (intptr_t)pbase;
-                if (((intptr_t)pbase + len) > si->wrprotect_end)
-                    si->wrprotect_end = (intptr_t)pbase + len;
-                mprotect(pbase, len,
-                         PFLAGS_TO_PROT(phdr->p_flags) | PROT_WRITE);
-            }
-        } else if (phdr->p_type == PT_DYNAMIC) {
-            DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
-            /* this segment contains the dynamic linking information */
-            si->dynamic = (ElfW(Dyn) *)(base + phdr->p_vaddr);
-        } else if (phdr->p_type == PT_GNU_RELRO) {
-            if ((phdr->p_vaddr >= si->size)
-                    || ((phdr->p_vaddr + phdr->p_memsz) > si->size)
-                    || ((base + phdr->p_vaddr + phdr->p_memsz) < base)) {
-                DL_ERR("%d invalid GNU_RELRO in '%s' "
-                       "p_vaddr=0x%016lx p_memsz=0x%016lx", apkenv_pid, si->name,
-                       phdr->p_vaddr, phdr->p_memsz);
-                goto fail;
-            }
-            si->gnu_relro_start = (ElfW(Addr)) (base + phdr->p_vaddr);
-            si->gnu_relro_len = (size_t) phdr->p_memsz;
-        } else {
+			/* Check to see if we need to extend the map for this segment to
+			 * cover the diff between filesz and memsz (i.e. for bss).
+			 *
+			 *  base           _+---------------------+  page boundary
+			 *                  .                     .
+			 *                  |                     |
+			 *                  .                     .
+			 *  pbase          _+---------------------+  page boundary
+			 *                  |                     |
+			 *                  .                     .
+			 *  base + p_vaddr _|                     |
+			 *                  . \          \        .
+			 *                  . | filesz   |        .
+			 *  pbase + len    _| /          |        |
+			 *     <0 pad>      .            .        .
+			 *  extra_base     _+------------|--------+  page boundary
+			 *               /  .            .        .
+			 *               |  .            .        .
+			 *               |  +------------|--------+  page boundary
+			 *  extra_len->  |  |            |        |
+			 *               |  .            | memsz  .
+			 *               |  .            |        .
+			 *               \ _|            /        |
+			 *                  .                     .
+			 *                  |                     |
+			 *                 _+---------------------+  page boundary
+			 */
+			tmp = (ElfW(Addr))(((intptr_t)pbase + len + PAGE_SIZE - 1) &
+					   (~PAGE_MASK));
+			if (tmp < (base + phdr->p_vaddr + phdr->p_memsz)) {
+				extra_len = base + phdr->p_vaddr + phdr->p_memsz - tmp;
+				TRACE("[ %5d - Need to extend segment from '%s' @ 0x%016lx "
+				      "(0x%016lx) ]\n",
+				      apkenv_pid, si->name, tmp, extra_len);
+				/* map in the extra page(s) as anonymous into the range.
+				 * This is probably not necessary as we already mapped in
+				 * the entire region previously, but we just want to be
+				 * sure. This will also set the right flags on the region
+				 * (though we can probably accomplish the same thing with
+				 * mprotect).
+				 */
+				extra_base = mmap((void *)tmp, extra_len,
+						  PFLAGS_TO_PROT(phdr->p_flags),
+						  MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS,
+						  -1, 0);
+				if (extra_base == MAP_FAILED) {
+					DL_ERR("[ %5d - failed to extend segment from '%s' @ 0x%016lx"
+					       " (0x%016lx) ]",
+					       apkenv_pid, si->name, tmp,
+					       extra_len);
+					goto fail;
+				}
+				/* TODO: Check if we need to memset-0 this region.
+				 * Anonymous mappings are zero-filled copy-on-writes, so we
+				 * shouldn't need to. */
+				TRACE("[ %5d - Segment from '%s' extended @ 0x%016lx "
+				      "(0x%016lx)\n",
+				      apkenv_pid, si->name, (uint64_t)extra_base,
+				      extra_len);
+			}
+			/* set the len here to show the full extent of the segment we
+			 * just loaded, mostly for debugging */
+			len = (((intptr_t)base + phdr->p_vaddr + phdr->p_memsz +
+				PAGE_SIZE - 1) &
+			       (~PAGE_MASK)) -
+			      (intptr_t)pbase;
+			TRACE("[ %5d - Successfully loaded segment from '%s' @ 0x%016lx "
+			      "(0x%016lx). p_vaddr=0x%016lx p_offset=0x%016lx\n",
+			      apkenv_pid, si->name,
+			      (uint64_t)pbase, len, phdr->p_vaddr, phdr->p_offset);
+			total_sz += len;
+			/* Make the section writable just in case we'll have to write to
+			 * it during relocation (i.e. text segment). However, we will
+			 * remember what range of addresses should be write protected.
+			 *
+			 */
+			if (!(phdr->p_flags & PF_W)) {
+				if ((intptr_t)pbase < si->wrprotect_start)
+					si->wrprotect_start = (intptr_t)pbase;
+				if (((intptr_t)pbase + len) > si->wrprotect_end)
+					si->wrprotect_end = (intptr_t)pbase + len;
+				mprotect(pbase, len,
+					 PFLAGS_TO_PROT(phdr->p_flags) | PROT_WRITE);
+			}
+		} else if (phdr->p_type == PT_DYNAMIC) {
+			DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
+			/* this segment contains the dynamic linking information */
+			si->dynamic = (ElfW(Dyn) *)(base + phdr->p_vaddr);
+		} else if (phdr->p_type == PT_GNU_RELRO) {
+			if ((phdr->p_vaddr >= si->size) || ((phdr->p_vaddr + phdr->p_memsz) > si->size) || ((base + phdr->p_vaddr + phdr->p_memsz) < base)) {
+				DL_ERR("%d invalid GNU_RELRO in '%s' "
+				       "p_vaddr=0x%016lx p_memsz=0x%016lx",
+				       apkenv_pid, si->name,
+				       phdr->p_vaddr, phdr->p_memsz);
+				goto fail;
+			}
+			si->gnu_relro_start = (ElfW(Addr))(base + phdr->p_vaddr);
+			si->gnu_relro_len = (size_t)phdr->p_memsz;
+		} else {
 #if defined(__arm__)
-            if (phdr->p_type == PT_ARM_EXIDX) {
-                DEBUG_DUMP_PHDR(phdr, "PT_ARM_EXIDX", apkenv_pid);
-                /* exidx entries (used for stack unwinding) are 8 bytes each.
-                 */
-                si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
-                si->ARM_exidx_count = phdr->p_memsz / 8;
-            }
+			if (phdr->p_type == PT_ARM_EXIDX) {
+				DEBUG_DUMP_PHDR(phdr, "PT_ARM_EXIDX", apkenv_pid);
+				/* exidx entries (used for stack unwinding) are 8 bytes each.
+				 */
+				si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
+				si->ARM_exidx_count = phdr->p_memsz / 8;
+			}
 #endif
-        }
+		}
+	}
 
-    }
+	/* Sanity check */
+	if (total_sz > si->size) {
+		DL_ERR("%5d - Total length (0x%016lx) of mapped segments from '%s' is "
+		       "greater than what was allocated (0x%016lx). THIS IS BAD!",
+		       apkenv_pid, total_sz, si->name, si->size);
+		goto fail;
+	}
 
-    /* Sanity check */
-    if (total_sz > si->size) {
-        DL_ERR("%5d - Total length (0x%016lx) of mapped segments from '%s' is "
-              "greater than what was allocated (0x%016lx). THIS IS BAD!",
-              apkenv_pid, total_sz, si->name, si->size);
-        goto fail;
-    }
-
-    TRACE("[ %5d - Finish loading segments for '%s' @ 0x%016lx. "
-          "Total memory footprint: 0x%016lx bytes ]\n", apkenv_pid, si->name,
-          si->base, si->size);
-    return 0;
+	TRACE("[ %5d - Finish loading segments for '%s' @ 0x%016lx. "
+	      "Total memory footprint: 0x%016lx bytes ]\n",
+	      apkenv_pid, si->name,
+	      si->base, si->size);
+	return 0;
 
 fail:
-    /* We can just blindly unmap the entire region even though some things
-     * were mapped in originally with anonymous and others could have been
-     * been mapped in from the file before we failed. The kernel will unmap
-     * all the pages in the range, irrespective of how they got there.
-     */
-    munmap((void *)si->base, si->size);
-    si->flags |= FLAG_ERROR;
-    return -1;
+	/* We can just blindly unmap the entire region even though some things
+	 * were mapped in originally with anonymous and others could have been
+	 * been mapped in from the file before we failed. The kernel will unmap
+	 * all the pages in the range, irrespective of how they got there.
+	 */
+	munmap((void *)si->base, si->size);
+	si->flags |= FLAG_ERROR;
+	return -1;
 }
 
 /* TODO: Implement this to take care of the fact that Android ARM
@@ -1182,190 +1194,191 @@ get_wr_offset(int fd, const char *name, ElfW(Ehdr) *ehdr)
 static soinfo *
 apkenv_load_library(const char *name, const bool try_glibc, int glibc_flag, void **_glibc_handle)
 {
-    char fullpath[512];
-    int fd = apkenv_open_library(name, fullpath);
-    int cnt;
-    size_t ext_sz;
-    size_t req_base;
-    const char *bname;
-    soinfo *si = NULL;
-    ElfW(Ehdr) *hdr;
+	char fullpath[512];
+	int fd = apkenv_open_library(name, fullpath);
+	int cnt;
+	size_t ext_sz;
+	size_t req_base;
+	const char *bname;
+	soinfo *si = NULL;
+	ElfW(Ehdr) * hdr;
 
-    if(fd == -1) {
-        if(try_glibc) {
-            if (!(glibc_flag & (RTLD_LAZY | RTLD_NOW)))
-                  glibc_flag |= RTLD_NOW;
-            if(!_glibc_handle)
-                glibc_flag |= RTLD_GLOBAL;
+	if (fd == -1) {
+		if (try_glibc) {
+			if (!(glibc_flag & (RTLD_LAZY | RTLD_NOW)))
+				glibc_flag |= RTLD_NOW;
+			if (!_glibc_handle)
+				glibc_flag |= RTLD_GLOBAL;
 			void *glibc_handle;
-            if (glibc_handle = dlopen(name, glibc_flag)) {
-                if(_glibc_handle)
-                    *_glibc_handle = glibc_handle;
-                DEBUG("Loaded %s with glibc dlopen\n", name);
-                return NULL;
-            } else {
-                DEBUG("failed to load %s with glibc dlopen (error: %s)\n", name, dlerror());
-            }
-        }
-        DL_ERR("shim bionic linker: library '%s' not found", name);
-        
-        return NULL;
-    }
+			if (glibc_handle = dlopen(name, glibc_flag)) {
+				if (_glibc_handle)
+					*_glibc_handle = glibc_handle;
+				DEBUG("Loaded %s with glibc dlopen\n", name);
+				return NULL;
+			} else {
+				DEBUG("failed to load %s with glibc dlopen (error: %s)\n", name, dlerror());
+			}
+		}
+		DL_ERR("shim bionic linker: library '%s' not found", name);
 
-    off_t end;
-    if ((end = lseek(fd, 0, SEEK_END)) < 0) {
-        DL_ERR("lseek() failed!");
-        goto fail;
-    }
+		return NULL;
+	}
 
-    uint8_t *bytes;
-    if (!(bytes = calloc(1, end))) {
-        DL_ERR("calloc() failed!");
-        goto fail;
-    }
+	off_t end;
+	if ((end = lseek(fd, 0, SEEK_END)) < 0) {
+		DL_ERR("lseek() failed!");
+		goto fail;
+	}
 
-    /* We have to read the ELF header to figure out what to do with this image
-     */
-    if (lseek(fd, 0, SEEK_SET) < 0) {
-        DL_ERR("lseek() failed!");
-        goto fail;
-    }
+	uint8_t *bytes;
+	if (!(bytes = calloc(1, end))) {
+		DL_ERR("calloc() failed!");
+		goto fail;
+	}
 
+	/* We have to read the ELF header to figure out what to do with this image
+	 */
+	if (lseek(fd, 0, SEEK_SET) < 0) {
+		DL_ERR("lseek() failed!");
+		goto fail;
+	}
 
-    if ((cnt = read(fd, bytes, end)) < 0) {
-        DL_ERR("read() failed!");
-        goto fail;
-    }
+	if ((cnt = read(fd, bytes, end)) < 0) {
+		DL_ERR("read() failed!");
+		goto fail;
+	}
 
-    /* Parse the ELF header and get the size of the memory footprint for
-     * the library */
-    req_base = apkenv_get_lib_extents(fd, name, bytes, &ext_sz);
-    if (req_base == (intptr_t)-1)
-        goto fail;
-    TRACE("[ %5d - '%s' (%s) wants base=0x%016lx sz=0x%016lx ]\n", apkenv_pid, name,
-          (req_base ? "prelinked" : "not pre-linked"), req_base, ext_sz);
+	/* Parse the ELF header and get the size of the memory footprint for
+	 * the library */
+	req_base = apkenv_get_lib_extents(fd, name, bytes, &ext_sz);
+	if (req_base == (intptr_t)-1)
+		goto fail;
+	TRACE("[ %5d - '%s' (%s) wants base=0x%016lx sz=0x%016lx ]\n", apkenv_pid, name,
+	      (req_base ? "prelinked" : "not pre-linked"), req_base, ext_sz);
 
-    /* Now configure the soinfo struct where we'll store all of our data
-     * for the ELF object. If the loading fails, we waste the entry, but
-     * same thing would happen if we failed during linking. Configuring the
-     * soinfo struct here is a lot more convenient.
-     */
-    bname = strrchr(name, '/');
-    si = apkenv_alloc_info(bname ? bname + 1 : name);
-    if (si == NULL)
-        goto fail;
+	/* Now configure the soinfo struct where we'll store all of our data
+	 * for the ELF object. If the loading fails, we waste the entry, but
+	 * same thing would happen if we failed during linking. Configuring the
+	 * soinfo struct here is a lot more convenient.
+	 */
+	bname = strrchr(name, '/');
+	si = apkenv_alloc_info(bname ? bname + 1 : name);
+	if (si == NULL)
+		goto fail;
 
-    /* apkenv */
-    strncpy(si->fullpath, fullpath, sizeof(si->fullpath));
-    si->fullpath[sizeof(si->fullpath) - 1] = 0;
+	/* apkenv */
+	strncpy(si->fullpath, fullpath, sizeof(si->fullpath));
+	si->fullpath[sizeof(si->fullpath) - 1] = 0;
 
-    /* Carve out a chunk of memory where we will map in the individual
-     * segments */
-    si->base = req_base;
-    si->size = ext_sz;
-    si->flags = 0;
-    si->entry = 0;
-    si->dynamic = (ElfW(Dyn) *)-1;
-    if (apkenv_alloc_mem_region(si) < 0)
-        goto fail;
+	/* Carve out a chunk of memory where we will map in the individual
+	 * segments */
+	si->base = req_base;
+	si->size = ext_sz;
+	si->flags = 0;
+	si->entry = 0;
+	si->dynamic = (ElfW(Dyn) *)-1;
+	if (apkenv_alloc_mem_region(si) < 0)
+		goto fail;
 
-    TRACE("[ %5d allocated memory for %s @ %p (0x%016lx) ]\n",
-          apkenv_pid, name, (void *)si->base, ext_sz);
+	TRACE("[ %5d allocated memory for %s @ %p (0x%016lx) ]\n",
+	      apkenv_pid, name, (void *)si->base, ext_sz);
 
-    /* Now actually load the library's segments into right places in memory */
-    if (apkenv_load_segments(fd, bytes, si) < 0) {
-        goto fail;
-    }
+	/* Now actually load the library's segments into right places in memory */
+	if (apkenv_load_segments(fd, bytes, si) < 0) {
+		goto fail;
+	}
 
-    /* this might not be right. Technically, we don't even need this info
-     * once we go through 'apkenv_load_segments'. */
-    hdr = (ElfW(Ehdr) *)si->base;
-    si->phdr = (ElfW(Phdr) *)((unsigned char *)si->base + hdr->e_phoff);
-    si->phnum = hdr->e_phnum;
-    /**/
+	/* this might not be right. Technically, we don't even need this info
+	 * once we go through 'apkenv_load_segments'. */
+	hdr = (ElfW(Ehdr) *)si->base;
+	si->phdr = (ElfW(Phdr) *)((unsigned char *)si->base + hdr->e_phoff);
+	si->phnum = hdr->e_phnum;
+	/**/
 
-    close(fd);
-    return si;
+	close(fd);
+	return si;
 
 fail:
-    if (si) apkenv_free_info(si);
-    close(fd);
-    return NULL;
+	if (si)
+		apkenv_free_info(si);
+	close(fd);
+	return NULL;
 }
 
 static soinfo *
 apkenv_init_library(soinfo *si)
 {
-    unsigned wr_offset = 0xffffffff; // this is not used...?
+	unsigned wr_offset = 0xffffffff; // this is not used...?
 
-    /* At this point we know that whatever is loaded @ base is a valid ELF
-     * shared library whose segments are properly mapped in. */
-    TRACE("[ %5d apkenv_init_library base=0x%016lx sz=0x%016lx name='%s') ]\n",
-          apkenv_pid, si->base, si->size, si->name);
-    if(apkenv_link_image(si, wr_offset)) {
-            /* We failed to link.  However, we can only restore libbase
-            ** if no additional libraries have moved it since we updated it.
-            */
-        munmap((void *)si->base, si->size);
-        return NULL;
-    }
+	/* At this point we know that whatever is loaded @ base is a valid ELF
+	 * shared library whose segments are properly mapped in. */
+	TRACE("[ %5d apkenv_init_library base=0x%016lx sz=0x%016lx name='%s') ]\n",
+	      apkenv_pid, si->base, si->size, si->name);
+	if (apkenv_link_image(si, wr_offset)) {
+		/* We failed to link.  However, we can only restore libbase
+		** if no additional libraries have moved it since we updated it.
+		*/
+		munmap((void *)si->base, si->size);
+		return NULL;
+	}
 
-    return si;
+	return si;
 }
 
 soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_flag, void **glibc_handle)
 {
-    soinfo *si;
-    const char *bname;
+	soinfo *si;
+	const char *bname;
 
 #if ALLOW_SYMBOLS_FROM_MAIN
-    if (name == NULL)
-        return apkenv_somain;
+	if (name == NULL)
+		return apkenv_somain;
 #else
-    if (name == NULL)
-        return NULL;
+	if (name == NULL)
+		return NULL;
 #endif
 
-    // TODO: *in theory* the library could have /system/lib/{name} in DT_NEEDED
-    // libc_bio.so pulls in libptread_bio.so (pthreads are in libc.so on android)
-    if(!strcmp(name, "libc.so"))
-        name = "libc_bio.so.0";
-    else if(!strcmp(name, "libstdc++.so"))
-        name = "libstdc++_bio.so.0";
+	// TODO: *in theory* the library could have /system/lib/{name} in DT_NEEDED
+	// libc_bio.so pulls in libptread_bio.so (pthreads are in libc.so on android)
+	if (!strcmp(name, "libc.so"))
+		name = "libc_bio.so.0";
+	else if (!strcmp(name, "libstdc++.so"))
+		name = "libstdc++_bio.so.0";
 	// NOTE: it seems weird to hardcode this here when we're not providing these libs,
 	// but the list of libraries for which we need to do this should be finite so it's
 	// not the worst thing ever (TODO: read these overrides from /etc ?)
-    else if(!strcmp(name, "libandroid.so"))
-        name = "libandroid.so.0";
-    else if(!strcmp(name, "libOpenSLES.so"))
-        name = "libOpenSLES.so.1";
+	else if (!strcmp(name, "libandroid.so"))
+		name = "libandroid.so.0";
+	else if (!strcmp(name, "libOpenSLES.so"))
+		name = "libOpenSLES.so.1";
 
-    bname = strrchr(name, '/');
-    bname = bname ? bname + 1 : name;
+	bname = strrchr(name, '/');
+	bname = bname ? bname + 1 : name;
 
-    for(si = apkenv_solist; si != 0; si = si->next){
-        if(!strcmp(bname, si->name)) {
-            if(si->flags & FLAG_ERROR) {
-                DL_ERR("%5d '%s' failed to load previously", apkenv_pid, bname);
-                return NULL;
-            }
-            if(si->flags & FLAG_LINKED) return si;
-            DL_ERR("OOPS: %5d recursive link to '%s'", apkenv_pid, si->name);
-            return NULL;
-        }
-    }
+	for (si = apkenv_solist; si != 0; si = si->next) {
+		if (!strcmp(bname, si->name)) {
+			if (si->flags & FLAG_ERROR) {
+				DL_ERR("%5d '%s' failed to load previously", apkenv_pid, bname);
+				return NULL;
+			}
+			if (si->flags & FLAG_LINKED)
+				return si;
+			DL_ERR("OOPS: %5d recursive link to '%s'", apkenv_pid, si->name);
+			return NULL;
+		}
+	}
 
-    TRACE("[ %5d '%s' has not been loaded yet.  Locating...]\n", apkenv_pid, name);
-    if (!(si = apkenv_load_library(name, try_glibc, glibc_flag, glibc_handle)) || !(si = apkenv_init_library(si)))
-        return NULL;
+	TRACE("[ %5d '%s' has not been loaded yet.  Locating...]\n", apkenv_pid, name);
+	if (!(si = apkenv_load_library(name, try_glibc, glibc_flag, glibc_handle)) || !(si = apkenv_init_library(si)))
+		return NULL;
 
-    if (!strcmp(bname, "libstdc++.so")) {
-        ElfW(Sym) *sym = apkenv_lookup_in_library(si, "__cxa_demangle");
-        if (sym && ELF_ST_BIND(sym->st_info) == STB_GLOBAL && sym->st_shndx != 0)
-            wrapper_set_cpp_demangler((void*)(intptr_t)(sym->st_value + si->base));
-    }
+	if (!strcmp(bname, "libstdc++.so")) {
+		ElfW(Sym) *sym = apkenv_lookup_in_library(si, "__cxa_demangle");
+		if (sym && ELF_ST_BIND(sym->st_info) == STB_GLOBAL && sym->st_shndx != 0)
+			wrapper_set_cpp_demangler((void *)(intptr_t)(sym->st_value + si->base));
+	}
 
-    return si;
+	return si;
 }
 
 /* TODO:
@@ -1375,58 +1388,55 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
 static void apkenv_call_destructors(soinfo *si);
 unsigned int apkenv_unload_library(soinfo *si)
 {
-    if (si->refcount == 1) {
-        TRACE("%5d unloading '%s'\n", apkenv_pid, si->name);
-        apkenv_call_destructors(si);
+	if (si->refcount == 1) {
+		TRACE("%5d unloading '%s'\n", apkenv_pid, si->name);
+		apkenv_call_destructors(si);
 
-        /*
-         * Make sure that we undo the PT_GNU_RELRO protections we added
-         * in apkenv_link_image. This is needed to undo the DT_NEEDED hack below.
-         */
-        if ((si->gnu_relro_start != 0) && (si->gnu_relro_len != 0)) {
-            ElfW(Addr) start = (si->gnu_relro_start & ~PAGE_MASK);
-            size_t len = (si->gnu_relro_start - start) + si->gnu_relro_len;
-            if (mprotect((void *) start, len, PROT_READ | PROT_WRITE) < 0)
-                DL_ERR("%5d %s: could not undo GNU_RELRO protections. "
-                       "Expect a crash soon. errno=%d (%s)",
-                       apkenv_pid, si->name, errno, strerror(errno));
+		/*
+		 * Make sure that we undo the PT_GNU_RELRO protections we added
+		 * in apkenv_link_image. This is needed to undo the DT_NEEDED hack below.
+		 */
+		if ((si->gnu_relro_start != 0) && (si->gnu_relro_len != 0)) {
+			ElfW(Addr) start = (si->gnu_relro_start & ~PAGE_MASK);
+			size_t len = (si->gnu_relro_start - start) + si->gnu_relro_len;
+			if (mprotect((void *)start, len, PROT_READ | PROT_WRITE) < 0)
+				DL_ERR("%5d %s: could not undo GNU_RELRO protections. "
+				       "Expect a crash soon. errno=%d (%s)",
+				       apkenv_pid, si->name, errno, strerror(errno));
+		}
 
-        }
+		for (ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+			if (d->d_tag == DT_NEEDED) {
+				soinfo *lsi = (soinfo *)d->d_un.d_val;
 
-        for(ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
-            if(d->d_tag == DT_NEEDED){
-                soinfo *lsi = (soinfo *)d->d_un.d_val;
+				// The next line will segfault if the we don't undo the
+				// PT_GNU_RELRO protections (see comments above and in
+				// apkenv_link_image().
+				d->d_un.d_val = 0;
 
-                // The next line will segfault if the we don't undo the
-                // PT_GNU_RELRO protections (see comments above and in
-                // apkenv_link_image().
-                d->d_un.d_val = 0;
+				if (apkenv_validate_soinfo(lsi)) {
+					TRACE("%5d %s needs to unload %s\n", apkenv_pid,
+					      si->name, lsi->name);
+					apkenv_unload_library(lsi);
+				} else
+					DL_ERR("%5d %s: could not unload dependent library",
+					       apkenv_pid, si->name);
+			}
+		}
 
-                if (apkenv_validate_soinfo(lsi)) {
-                    TRACE("%5d %s needs to unload %s\n", apkenv_pid,
-                          si->name, lsi->name);
-                    apkenv_unload_library(lsi);
-                }
-                else
-                    DL_ERR("%5d %s: could not unload dependent library",
-                           apkenv_pid, si->name);
-            }
-        }
-
-        munmap((char *)si->base, si->size);
-        apkenv_notify_gdb_of_unload(si);
-        apkenv_free_info(si);
-        si->refcount = 0;
-    }
-    else {
-        si->refcount--;
-        PRINT("%5d not unloading '%s', decrementing refcount to %lu\n",
-              apkenv_pid, si->name, si->refcount);
-    }
-    return si->refcount;
+		munmap((char *)si->base, si->size);
+		apkenv_notify_gdb_of_unload(si);
+		apkenv_free_info(si);
+		si->refcount = 0;
+	} else {
+		si->refcount--;
+		PRINT("%5d not unloading '%s', decrementing refcount to %lu\n",
+		      apkenv_pid, si->name, si->refcount);
+	}
+	return si->refcount;
 }
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /* --- TODO: move this into wrapper.c and use it to get rid of that file's dependency on magic assembly */
 
@@ -1450,16 +1460,17 @@ unsigned int apkenv_unload_library(soinfo *si)
 
 #define FUNC_ADJ_VAR(func_name) (func_name##_adj_data)
 
-#define COPYABLE_FUNC(func_name) \
-	extern const char __start_##func_name##_section; \
-	extern const char __stop_##func_name##_section; \
-	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name"_section"))) __attribute__((__used__)) __attribute__((aligned(PAGE_SIZE))) = NULL; \
-	void __attribute__((no_reorder)) __attribute__((section(#func_name"_section;#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) __attribute__((optimize("-fno-stack-protector"))) func_name(void)
+#define COPYABLE_FUNC(func_name)                                                                                                                                                            \
+	extern const char __start_##func_name##_section;                                                                                                                                    \
+	extern const char __stop_##func_name##_section;                                                                                                                                     \
+	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name "_section"))) __attribute__((__used__)) __attribute__((aligned(PAGE_SIZE))) = NULL; \
+	void __attribute__((no_reorder)) __attribute__((section(#func_name "_section;#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) __attribute__((optimize("-fno-stack-protector"))) func_name(void)
 
-void * alloc_executable_memory(size_t size) {
+void *alloc_executable_memory(size_t size)
+{
 	void *ptr = mmap(0, size,
-	                 PROT_READ | PROT_WRITE | PROT_EXEC,
-	                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			 PROT_READ | PROT_WRITE | PROT_EXEC,
+			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (ptr == (void *)-1) {
 		perror("mmap");
 		return NULL;
@@ -1495,7 +1506,8 @@ struct stub_func_adj_data {
 	const char *orig_func_name;
 };
 
-COPYABLE_FUNC(symbol_not_linked_stub) {
+COPYABLE_FUNC(symbol_not_linked_stub)
+{
 	// char fmt_str[] = "..." seems to still use a string literal on aarch64 (anything with fixed width instructions possibly?)
 	// the following was used to work around this (first letter ommited since `cat -n` is 1-indexed):
 	// echo "BORTING: LINKER_DIE_AT_RUNTIME was set, and someone called a function which we weren't able to link (symbol name: >%s<)" | sed -E "s/(.)/\1\n/g" | cat -n | sed -E "s/ *([^ \t]*)[ \t]*(.)/fmt_str[\1] = '\2';/" | sed "s/'''/\'\\\\''/
@@ -1628,9 +1640,9 @@ COPYABLE_FUNC(symbol_not_linked_stub) {
 }
 
 #if defined(USE_RELA)
-static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
+static int apkenv_reloc_library(soinfo *si, ElfW(Rela) * rela, size_t count)
 {
-	ElfW(Sym)* s;
+	ElfW(Sym) * s;
 	ElfW(Addr) base;
 
 	for (size_t idx = 0; idx < count; ++idx, ++rela) {
@@ -1640,8 +1652,8 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 
 		ElfW(Addr) reloc = (ElfW(Addr))(rela->r_offset + si->base);
 		ElfW(Addr) sym_addr = 0;
-		const char* sym_name = NULL;
-		char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+		const char *sym_name = NULL;
+		char wrap_sym_name[1024] = {'b', 'i', 'o', 'n', 'i', 'c', '_'};
 
 		DEBUG("Processing '%s' relocation at index %zd", si->name, idx);
 
@@ -1680,9 +1692,9 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 #endif
 			} else {
 				// symbol not found
-				if(getenv("LINKER_DIE_AT_RUNTIME")) {
+				if (getenv("LINKER_DIE_AT_RUNTIME")) {
 					// if this special env is set, and the symbol is a function, link in a stub which only fails when it's actually called
-					if(ELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
+					if (ELF_ST_TYPE(si->symtab[sym].st_info) == STT_FUNC) {
 						struct stub_func_adj_data *data = malloc(sizeof(struct stub_func_adj_data));
 						data->printf = &printf;
 						data->exit = &exit;
@@ -1696,9 +1708,9 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 			if (sym_addr != 0) {
 #ifdef __GLIBC__
 				Dl_info info;
-				ElfW(Sym) *extra;
-				if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF_ST_TYPE(extra->st_info) == STT_FUNC))
-					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void*)sym_addr);
+				ElfW(Sym) * extra;
+				if (dladdr1((void *)sym_addr, &info, (void **)&extra, RTLD_DL_SYMENT) && (!extra || ELF_ST_TYPE(extra->st_info) == STT_FUNC))
+					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void *)sym_addr);
 #endif
 			} else if (s == NULL) {
 				// We only allow an undefined symbol if this is a weak reference...
@@ -1750,10 +1762,9 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 				/* We got a definition.  */
 				sym_addr = (ElfW(Addr))(s->st_value + base);
 				LINKER_DEBUG_PRINTF("%s symbol (from %s) %s to %016lx\n", si->name, apkenv_last_library_used, sym_name, sym_addr);
-				if(ELF_ST_TYPE(s->st_info) == STT_FUNC) {
-					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void*)sym_addr);
+				if (ELF_ST_TYPE(s->st_info) == STT_FUNC) {
+					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void *)sym_addr);
 				}
-
 			}
 			COUNT_RELOC(RELOC_SYMBOL);
 		} else {
@@ -1765,92 +1776,92 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO JMP_SLOT %16llx <- %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), sym_name);
-			*((ElfW(Addr)*)reloc) = (sym_addr + rela->r_addend);
+				   reloc, (sym_addr + rela->r_addend), sym_name);
+			*((ElfW(Addr) *)reloc) = (sym_addr + rela->r_addend);
 			break;
 		case R_AARCH64_GLOB_DAT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO GLOB_DAT %16llx <- %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), sym_name);
-			*((ElfW(Addr)*)reloc) = (sym_addr + rela->r_addend);
+				   reloc, (sym_addr + rela->r_addend), sym_name);
+			*((ElfW(Addr) *)reloc) = (sym_addr + rela->r_addend);
 			break;
 		case R_AARCH64_ABS64:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO ABS64 %16llx <- %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), sym_name);
-			*((ElfW(Addr)*)reloc) += (sym_addr + rela->r_addend);
+				   reloc, (sym_addr + rela->r_addend), sym_name);
+			*((ElfW(Addr) *)reloc) += (sym_addr + rela->r_addend);
 			break;
 		case R_AARCH64_ABS32:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO ABS32 %16llx <- %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), sym_name);
-			if (((ElfW(Addr))(INT32_MIN) <= (*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend))) &&
-					((*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend)) <= (ElfW(Addr))(UINT32_MAX))) {
-					*((ElfW(Addr)*)reloc) += (sym_addr + rela->r_addend);
+				   reloc, (sym_addr + rela->r_addend), sym_name);
+			if (((ElfW(Addr))(INT32_MIN) <= (*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend))) &&
+			    ((*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend)) <= (ElfW(Addr))(UINT32_MAX))) {
+				*((ElfW(Addr) *)reloc) += (sym_addr + rela->r_addend);
 			} else {
-					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
-								 (*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend)),
-								 (ElfW(Addr))(INT32_MIN),
-								 (ElfW(Addr))(UINT32_MAX));
-					return -1;
+				DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+				       (*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend)),
+				       (ElfW(Addr))(INT32_MIN),
+				       (ElfW(Addr))(UINT32_MAX));
+				return -1;
 			}
 			break;
 		case R_AARCH64_ABS16:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO ABS16 %16llx <- %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), sym_name);
-			if (((ElfW(Addr))(INT16_MIN) <= (*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend))) &&
-					((*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend)) <= (ElfW(Addr))(UINT16_MAX))) {
-					*((ElfW(Addr)*)reloc) += (sym_addr + rela->r_addend);
+				   reloc, (sym_addr + rela->r_addend), sym_name);
+			if (((ElfW(Addr))(INT16_MIN) <= (*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend))) &&
+			    ((*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend)) <= (ElfW(Addr))(UINT16_MAX))) {
+				*((ElfW(Addr) *)reloc) += (sym_addr + rela->r_addend);
 			} else {
-					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
-								 (*((ElfW(Addr)*)reloc) + (sym_addr + rela->r_addend)),
-								 (ElfW(Addr))(INT16_MIN),
-								 (ElfW(Addr))(UINT16_MAX));
-					return -1;
+				DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+				       (*((ElfW(Addr) *)reloc) + (sym_addr + rela->r_addend)),
+				       (ElfW(Addr))(INT16_MIN),
+				       (ElfW(Addr))(UINT16_MAX));
+				return -1;
 			}
 			break;
 		case R_AARCH64_PREL64:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO REL64 %16llx <- %16llx - %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
-			*((ElfW(Addr)*)reloc) += (sym_addr + rela->r_addend) - rela->r_offset;
+				   reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			*((ElfW(Addr) *)reloc) += (sym_addr + rela->r_addend) - rela->r_offset;
 			break;
 		case R_AARCH64_PREL32:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO REL32 %16llx <- %16llx - %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
-			if (((ElfW(Addr))(INT32_MIN) <= (*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
-					((*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (ElfW(Addr))(UINT32_MAX))) {
-					*((ElfW(Addr)*)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
+				   reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			if (((ElfW(Addr))(INT32_MIN) <= (*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
+			    ((*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (ElfW(Addr))(UINT32_MAX))) {
+				*((ElfW(Addr) *)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
 			} else {
-					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
-								 (*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
-								 (ElfW(Addr))(INT32_MIN),
-								 (ElfW(Addr))(UINT32_MAX));
-					return -1;
+				DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+				       (*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
+				       (ElfW(Addr))(INT32_MIN),
+				       (ElfW(Addr))(UINT32_MAX));
+				return -1;
 			}
 			break;
 		case R_AARCH64_PREL16:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO REL16 %16llx <- %16llx - %16llx %s\n",
-								 reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
-			if (((ElfW(Addr))(INT16_MIN) <= (*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
-					((*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (ElfW(Addr))(UINT16_MAX))) {
-					*((ElfW(Addr)*)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
+				   reloc, (sym_addr + rela->r_addend), rela->r_offset, sym_name);
+			if (((ElfW(Addr))(INT16_MIN) <= (*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset))) &&
+			    ((*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)) <= (ElfW(Addr))(UINT16_MAX))) {
+				*((ElfW(Addr) *)reloc) += ((sym_addr + rela->r_addend) - rela->r_offset);
 			} else {
-					DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
-								 (*((ElfW(Addr)*)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
-								 (ElfW(Addr))(INT16_MIN),
-								 (ElfW(Addr))(UINT16_MAX));
-					return -1;
+				DL_ERR("0x%016llx out of range 0x%016llx to 0x%016llx",
+				       (*((ElfW(Addr) *)reloc) + ((sym_addr + rela->r_addend) - rela->r_offset)),
+				       (ElfW(Addr))(INT16_MIN),
+				       (ElfW(Addr))(UINT16_MAX));
+				return -1;
 			}
 			break;
 		case R_AARCH64_RELATIVE:
@@ -1861,8 +1872,8 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 				return -1;
 			}
 			TRACE_TYPE(RELO, "RELO RELATIVE %16llx <- %16llx\n",
-								 reloc, (si->base + rela->r_addend));
-			*((ElfW(Addr)*)reloc) = (si->base + rela->r_addend);
+				   reloc, (si->base + rela->r_addend));
+			*((ElfW(Addr) *)reloc) = (si->base + rela->r_addend);
 			break;
 		case R_AARCH64_COPY:
 			/*
@@ -1878,19 +1889,19 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 			return -1;
 		case R_AARCH64_TLS_TPREL64:
 			TRACE_TYPE(RELO, "RELO TLS_TPREL64 *** %16llx <- %16llx - %16llx\n",
-								 reloc, (sym_addr + rela->r_addend), rela->r_offset);
+				   reloc, (sym_addr + rela->r_addend), rela->r_offset);
 			break;
 		case R_AARCH64_TLS_DTPREL32:
 			TRACE_TYPE(RELO, "RELO TLS_DTPREL32 *** %16llx <- %16llx - %16llx\n",
-								 reloc, (sym_addr + rela->r_addend), rela->r_offset);
+				   reloc, (sym_addr + rela->r_addend), rela->r_offset);
 			break;
 #elif defined(__x86_64__)
 		case R_X86_64_JUMP_SLOT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO JMP_SLOT %08zx <- %08zx %s\n", (size_t)(reloc),
-								 (size_t)(sym_addr + rela->r_addend), sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr + rela->r_addend;
+				   (size_t)(sym_addr + rela->r_addend), sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr + rela->r_addend;
 			break;
 		case R_X86_64_GLOB_DAT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
@@ -1898,8 +1909,8 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 
 			TRACE_TYPE(RELO, "RELO GLOB_DAT %08zx <- %08zx %s\n", (size_t)(reloc),
 
-								 (size_t)(sym_addr + rela->r_addend), sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr + rela->r_addend;
+				   (size_t)(sym_addr + rela->r_addend), sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr + rela->r_addend;
 			break;
 		case R_X86_64_RELATIVE:
 			COUNT_RELOC(RELOC_RELATIVE);
@@ -1909,30 +1920,30 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 				return -1;
 			}
 			TRACE_TYPE(RELO, "RELO RELATIVE %08zx <- +%08zx\n", (size_t)(reloc),
-								 (size_t)(si->base));
-			*((ElfW(Addr)*)reloc) = si->base + rela->r_addend;
+				   (size_t)(si->base));
+			*((ElfW(Addr) *)reloc) = si->base + rela->r_addend;
 			break;
 		case R_X86_64_32:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO R_X86_64_32 %08zx <- +%08zx %s\n", (size_t)(reloc),
-								 (size_t)(sym_addr), sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr + rela->r_addend;
+				   (size_t)(sym_addr), sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr + rela->r_addend;
 			break;
 		case R_X86_64_64:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO R_X86_64_64 %08zx <- +%08zx %s\n", (size_t)(reloc),
-								 (size_t)(sym_addr), sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr + rela->r_addend;
+				   (size_t)(sym_addr), sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr + rela->r_addend;
 			break;
 		case R_X86_64_PC32:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rela->r_offset);
 			TRACE_TYPE(RELO, "RELO R_X86_64_PC32 %08zx <- +%08zx (%08zx - %08zx) %s\n",
-								 (size_t)(reloc), (size_t)(sym_addr - reloc),
-								 (size_t)(sym_addr), (size_t)(reloc), sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr + rela->r_addend - reloc;
+				   (size_t)(reloc), (size_t)(sym_addr - reloc),
+				   (size_t)(sym_addr), (size_t)(reloc), sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr + rela->r_addend - reloc;
 			break;
 #endif
 		default:
@@ -1943,12 +1954,12 @@ static int apkenv_reloc_library(soinfo* si, ElfW(Rela) *rela, size_t count)
 	return 0;
 }
 #else // REL, not RELA.
-static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
+static int apkenv_reloc_library(soinfo *si, ElfW(Rel) * rel, size_t count)
 {
 	ElfW(Sym) *symtab = si->symtab;
 	const char *strtab = si->strtab;
 
-	ElfW(Sym) *s;
+	ElfW(Sym) * s;
 	ElfW(Addr) base;
 	ElfW(Rel) *start = rel;
 
@@ -1960,14 +1971,14 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 		ElfW(Addr) reloc = (ElfW(Addr))(rel->r_offset + si->base);
 		ElfW(Addr) sym_addr = 0;
 		char *sym_name = NULL;
-		char wrap_sym_name[1024] = { 'b', 'i', 'o', 'n', 'i', 'c', '_' };
+		char wrap_sym_name[1024] = {'b', 'i', 'o', 'n', 'i', 'c', '_'};
 
 		DEBUG("%5d Processing '%s' relocation at index %d\n", apkenv_pid, si->name, idx);
 
-// TODO: should we have this?
-//		if (type == 0) { // R_*_NONE
-//			continue;
-//		}
+		// TODO: should we have this?
+		//		if (type == 0) { // R_*_NONE
+		//			continue;
+		//		}
 		if (sym != 0) {
 			sym_name = (const char *)(si->strtab + si->symtab[sym].st_name);
 
@@ -1975,21 +1986,21 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 			sym_addr = 0;
 
 			if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, wrap_sym_name))) {
-			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, wrap_sym_name, sym_addr);
+				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, wrap_sym_name, sym_addr);
 			} else if ((s = apkenv__do_lookup(si, sym_name, &base))) {
 				// normal symbol
 			} else if ((sym_addr = (intptr_t)dlsym(RTLD_DEFAULT, sym_name))) {
-			   if (strstr(sym_name, "pthread_"))
-				  fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
-			   LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
+				if (strstr(sym_name, "pthread_"))
+					fprintf(stderr, "symbol may need to be wrapped: %s\n", sym_name);
+				LINKER_DEBUG_PRINTF("%s hooked symbol %s to %x\n", si->name, sym_name, sym_addr);
 			}
 
 			if (sym_addr != 0) {
 #ifdef __GLIBC__
 				Dl_info info;
-				ElfW(Sym) *extra;
-				if (dladdr1((void*)sym_addr, &info, (void**) &extra, RTLD_DL_SYMENT) && (!extra || ELF_ST_TYPE(extra->st_info) == STT_FUNC))
-					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void*)sym_addr);
+				ElfW(Sym) * extra;
+				if (dladdr1((void *)sym_addr, &info, (void **)&extra, RTLD_DL_SYMENT) && (!extra || ELF_ST_TYPE(extra->st_info) == STT_FUNC))
+					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void *)sym_addr);
 #endif
 			} else if (s == NULL) {
 				/* We only allow an undefined symbol if this is a weak
@@ -2013,14 +2024,14 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 				case R_ARM_JUMP_SLOT:
 				case R_ARM_GLOB_DAT:
 				case R_ARM_ABS32:
-				case R_ARM_RELATIVE:	/* Don't care. */
-				case R_ARM_NONE:		/* Don't care. */
+				case R_ARM_RELATIVE: /* Don't care. */
+				case R_ARM_NONE:     /* Don't care. */
 					break;
 #elif defined(__i386__)
 				case R_386_JMP_SLOT:
 				case R_386_GLOB_DAT:
 				case R_386_32:
-				case R_386_RELATIVE:	/* Dont' care. */
+				case R_386_RELATIVE: /* Dont' care. */
 					/* sym_addr was initialized to be zero above or relocation
 					   code below does not care about value of sym_addr.
 					   No need to do anything.  */
@@ -2036,72 +2047,71 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 #endif
 				default:
 					DL_ERR("%5d unknown weak reloc type %d @ %p (%d)\n",
-								 apkenv_pid, type, rel, (int) (rel - start));
+					       apkenv_pid, type, rel, (int)(rel - start));
 					return -1;
 				}
 			} else {
 				/* We got a definition.  */
 				sym_addr = (ElfW(Addr))(s->st_value + base);
 				LINKER_DEBUG_PRINTF("%s symbol (from %s) %s to %x\n", si->name, apkenv_last_library_used, sym_name, sym_addr);
-				if(ELF_ST_TYPE(s->st_info) == STT_FUNC) {
-					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void*)sym_addr);
+				if (ELF_ST_TYPE(s->st_info) == STT_FUNC) {
+					sym_addr = (ElfW(Addr))wrapper_create(sym_name, (void *)sym_addr);
 				}
-
 			}
 			COUNT_RELOC(RELOC_SYMBOL);
 		} else {
 			s = NULL;
 		}
 
-/* TODO: This is ugly. Split up the relocations by arch into
- * different files.
- */
+		/* TODO: This is ugly. Split up the relocations by arch into
+		 * different files.
+		 */
 		switch (type) {
 #if defined(__arm__)
 		case R_ARM_JUMP_SLOT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %016lx <- %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr;
+				   reloc, sym_addr, sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr;
 			break;
 		case R_ARM_GLOB_DAT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rel->r_offset);
 
 			TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %016lx <- %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
+				   reloc, sym_addr, sym_name);
 
-			*((ElfW(Addr)*)reloc) = sym_addr;
+			*((ElfW(Addr) *)reloc) = sym_addr;
 			break;
 		case R_ARM_ABS32:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO ABS %016lx <- %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
-			*((ElfW(Addr)*)reloc) += sym_addr;
+				   reloc, sym_addr, sym_name);
+			*((ElfW(Addr) *)reloc) += sym_addr;
 			break;
 		case R_ARM_REL32:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO REL32 %016lx <- %016lx - %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, rel->r_offset, sym_name);
-			*((ElfW(Addr)*)reloc) += sym_addr - rel->r_offset;
+				   reloc, sym_addr, rel->r_offset, sym_name);
+			*((ElfW(Addr) *)reloc) += sym_addr - rel->r_offset;
 			break;
 #elif defined(__i386__)
 		case R_386_JMP_SLOT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO JMP_SLOT %016lx <- %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr;
+				   reloc, sym_addr, sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr;
 			break;
 		case R_386_GLOB_DAT:
 			COUNT_RELOC(RELOC_ABSOLUTE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO GLOB_DAT %016lx <- %016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
-			*((ElfW(Addr)*)reloc) = sym_addr;
+				   reloc, sym_addr, sym_name);
+			*((ElfW(Addr) *)reloc) = sym_addr;
 			break;
 #endif
 
@@ -2112,13 +2122,13 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 #endif
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rel->r_offset);
-			if(sym){
+			if (sym) {
 				DL_ERR("%5d odd RELATIVE form...", apkenv_pid);
 				return -1;
 			}
 			TRACE_TYPE(RELO, "%5d RELO RELATIVE %016lx <- +%016lx\n", apkenv_pid,
-					   reloc, si->base);
-			*((ElfW(Addr)*)reloc) += si->base;
+				   reloc, si->base);
+			*((ElfW(Addr) *)reloc) += si->base;
 			break;
 
 #if defined(__i386__)
@@ -2127,17 +2137,18 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 			MARK(rel->r_offset);
 
 			TRACE_TYPE(RELO, "%5d RELO R_386_32 %016lx <- +%016lx %s\n", apkenv_pid,
-					   reloc, sym_addr, sym_name);
-			*((ElfW(Addr)*)reloc) += (uint32_t)sym_addr;
+				   reloc, sym_addr, sym_name);
+			*((ElfW(Addr) *)reloc) += (uint32_t)sym_addr;
 			break;
 
 		case R_386_PC32:
 			COUNT_RELOC(RELOC_RELATIVE);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO R_386_PC32 %016lx <- "
-					   "+%016lx (%016lx - %016lx) %s\n", apkenv_pid, reloc,
-					   (sym_addr - reloc), sym_addr, reloc, sym_name);
-			*((ElfW(Addr)*)reloc) += (uint32_t)(sym_addr - reloc);
+					 "+%016lx (%016lx - %016lx) %s\n",
+				   apkenv_pid, reloc,
+				   (sym_addr - reloc), sym_addr, reloc, sym_name);
+			*((ElfW(Addr) *)reloc) += (uint32_t)(sym_addr - reloc);
 			break;
 #endif
 
@@ -2146,8 +2157,8 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 			COUNT_RELOC(RELOC_COPY);
 			MARK(rel->r_offset);
 			TRACE_TYPE(RELO, "%5d RELO %016lx <- %d @ %016lx %s\n", apkenv_pid,
-					   reloc, s->st_size, sym_addr, sym_name);
-			memcpy((void*)reloc, (void*)sym_addr, s->st_size);
+				   reloc, s->st_size, sym_addr, sym_name);
+			memcpy((void *)reloc, (void *)sym_addr, s->st_size);
 			break;
 		case R_ARM_NONE:
 			break;
@@ -2155,7 +2166,7 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 
 		default:
 			DL_ERR("%5d unknown reloc type %d @ %p (%d)",
-				  apkenv_pid, type, rel, (int) (rel - start));
+			       apkenv_pid, type, rel, (int)(rel - start));
 			return -1;
 		}
 	}
@@ -2181,633 +2192,622 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) *rel, size_t count)
 
 static void apkenv_call_array(intptr_t *ctor, int count, int reverse)
 {
-    int n, inc = 1;
+	int n, inc = 1;
 
-    if (reverse) {
-        ctor += (count-1);
-        inc   = -1;
-    }
+	if (reverse) {
+		ctor += (count - 1);
+		inc = -1;
+	}
 
-    for(n = count; n > 0; n--) {
-        TRACE("[ %5d Looking at %s *0x%016lx == 0x%016lx ]\n", apkenv_pid,
-              reverse ? "dtor" : "ctor",
-              (intptr_t)ctor, (intptr_t)*ctor);
-        void (*func)() = (void (*)()) *ctor;
-        ctor += inc;
-        if(((intptr_t) func == 0) || ((intptr_t) func == -1)) continue;
-        TRACE("[ %5d Calling func @ 0x%016lx ]\n", apkenv_pid, (intptr_t)func);
-        func();
-    }
+	for (n = count; n > 0; n--) {
+		TRACE("[ %5d Looking at %s *0x%016lx == 0x%016lx ]\n", apkenv_pid,
+		      reverse ? "dtor" : "ctor",
+		      (intptr_t)ctor, (intptr_t)*ctor);
+		void (*func)() = (void (*)()) * ctor;
+		ctor += inc;
+		if (((intptr_t)func == 0) || ((intptr_t)func == -1))
+			continue;
+		TRACE("[ %5d Calling func @ 0x%016lx ]\n", apkenv_pid, (intptr_t)func);
+		func();
+	}
 }
 
 void apkenv_call_constructors_recursive(soinfo *si)
 {
-    if (si->constructors_called)
-        return;
+	if (si->constructors_called)
+		return;
 
-    // Set this before actually calling the constructors, otherwise it doesn't
-    // protect against recursive constructor calls. One simple example of
-    // constructor recursion is the libc debug malloc, which is implemented in
-    // libc_malloc_debug_leak.so:
-    // 1. The program depends on libc, so libc's constructor is called here.
-    // 2. The libc constructor calls dlopen() to load libc_malloc_debug_leak.so.
-    // 3. dlopen() calls apkenv_call_constructors_recursive() with the newly created
-    //    soinfo for libc_malloc_debug_leak.so.
-    // 4. The debug so depends on libc, so apkenv_call_constructors_recursive() is
-    //    called again with the libc soinfo. If it doesn't trigger the early-
-    //    out above, the libc constructor will be called again (recursively!).
-    si->constructors_called = 1;
+	// Set this before actually calling the constructors, otherwise it doesn't
+	// protect against recursive constructor calls. One simple example of
+	// constructor recursion is the libc debug malloc, which is implemented in
+	// libc_malloc_debug_leak.so:
+	// 1. The program depends on libc, so libc's constructor is called here.
+	// 2. The libc constructor calls dlopen() to load libc_malloc_debug_leak.so.
+	// 3. dlopen() calls apkenv_call_constructors_recursive() with the newly created
+	//    soinfo for libc_malloc_debug_leak.so.
+	// 4. The debug so depends on libc, so apkenv_call_constructors_recursive() is
+	//    called again with the libc soinfo. If it doesn't trigger the early-
+	//    out above, the libc constructor will be called again (recursively!).
+	si->constructors_called = 1;
 
-    TRACE("[ %5d Calling preinit_array @ 0x%016lx [%lu] for '%s' ]\n",
-          apkenv_pid, (intptr_t)si->preinit_array, si->preinit_array_count,
-          si->name);
-    apkenv_call_array(si->preinit_array, si->preinit_array_count, 0);
-    TRACE("[ %5d Done calling preinit_array for '%s' ]\n", apkenv_pid, si->name);
+	TRACE("[ %5d Calling preinit_array @ 0x%016lx [%lu] for '%s' ]\n",
+	      apkenv_pid, (intptr_t)si->preinit_array, si->preinit_array_count,
+	      si->name);
+	apkenv_call_array(si->preinit_array, si->preinit_array_count, 0);
+	TRACE("[ %5d Done calling preinit_array for '%s' ]\n", apkenv_pid, si->name);
 
-    if (si->dynamic) {
-        for(ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
-            if(d->d_tag == DT_NEEDED){
-                soinfo* lsi = (soinfo *)d->d_un.d_val;
-                if (!apkenv_validate_soinfo(lsi)) {
-                    DL_ERR("%5d bad DT_NEEDED pointer in %s",
-                           apkenv_pid, si->name);
-                } else {
-                    apkenv_call_constructors_recursive(lsi);
-                }
-            }
-        }
-    }
+	if (si->dynamic) {
+		for (ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+			if (d->d_tag == DT_NEEDED) {
+				soinfo *lsi = (soinfo *)d->d_un.d_val;
+				if (!apkenv_validate_soinfo(lsi)) {
+					DL_ERR("%5d bad DT_NEEDED pointer in %s",
+					       apkenv_pid, si->name);
+				} else {
+					apkenv_call_constructors_recursive(lsi);
+				}
+			}
+		}
+	}
 
-    if (si->init_func) {
-        TRACE("[ %5d Calling init_func @ 0x%016lx for '%s' ]\n", apkenv_pid,
-              (intptr_t)si->init_func, si->name);
-        si->init_func();
-        TRACE("[ %5d Done calling init_func for '%s' ]\n", apkenv_pid, si->name);
-    }
+	if (si->init_func) {
+		TRACE("[ %5d Calling init_func @ 0x%016lx for '%s' ]\n", apkenv_pid,
+		      (intptr_t)si->init_func, si->name);
+		si->init_func();
+		TRACE("[ %5d Done calling init_func for '%s' ]\n", apkenv_pid, si->name);
+	}
 
-    if (si->init_array) {
-        TRACE("[ %5d Calling init_array @ 0x%016lx [%lu] for '%s' ]\n", apkenv_pid,
-              (intptr_t)si->init_array, si->init_array_count, si->name);
-        apkenv_call_array(si->init_array, si->init_array_count, 0);
-        TRACE("[ %5d Done calling init_array for '%s' ]\n", apkenv_pid, si->name);
-    }
-
+	if (si->init_array) {
+		TRACE("[ %5d Calling init_array @ 0x%016lx [%lu] for '%s' ]\n", apkenv_pid,
+		      (intptr_t)si->init_array, si->init_array_count, si->name);
+		apkenv_call_array(si->init_array, si->init_array_count, 0);
+		TRACE("[ %5d Done calling init_array for '%s' ]\n", apkenv_pid, si->name);
+	}
 }
 
 static void apkenv_call_destructors(soinfo *si)
 {
-    if (si->fini_array) {
-        TRACE("[ %5d Calling fini_array @ 0x%016lx [%lu] for '%s' ]\n", apkenv_pid,
-              (intptr_t)si->fini_array, si->fini_array_count, si->name);
-        apkenv_call_array(si->fini_array, si->fini_array_count, 1);
-        TRACE("[ %5d Done calling fini_array for '%s' ]\n", apkenv_pid, si->name);
-    }
+	if (si->fini_array) {
+		TRACE("[ %5d Calling fini_array @ 0x%016lx [%lu] for '%s' ]\n", apkenv_pid,
+		      (intptr_t)si->fini_array, si->fini_array_count, si->name);
+		apkenv_call_array(si->fini_array, si->fini_array_count, 1);
+		TRACE("[ %5d Done calling fini_array for '%s' ]\n", apkenv_pid, si->name);
+	}
 
-    if (si->fini_func) {
-        TRACE("[ %5d Calling fini_func @ 0x%016lx for '%s' ]\n", apkenv_pid,
-              (intptr_t)si->fini_func, si->name);
-        si->fini_func();
-        TRACE("[ %5d Done calling fini_func for '%s' ]\n", apkenv_pid, si->name);
-    }
+	if (si->fini_func) {
+		TRACE("[ %5d Calling fini_func @ 0x%016lx for '%s' ]\n", apkenv_pid,
+		      (intptr_t)si->fini_func, si->name);
+		si->fini_func();
+		TRACE("[ %5d Done calling fini_func for '%s' ]\n", apkenv_pid, si->name);
+	}
 }
 
 /* Force any of the closed stdin, stdout and stderr to be associated with
    /dev/null. */
-static int apkenv_nullify_closed_stdio (void)
+static int apkenv_nullify_closed_stdio(void)
 {
-    int dev_null, i, status;
-    int return_value = 0;
+	int dev_null, i, status;
+	int return_value = 0;
 
-    dev_null = open("/dev/null", O_RDWR);
-    if (dev_null < 0) {
-        DL_ERR("Cannot open /dev/null.");
-        return -1;
-    }
-    TRACE("[ %5d Opened /dev/null file-descriptor=%d]\n", apkenv_pid, dev_null);
+	dev_null = open("/dev/null", O_RDWR);
+	if (dev_null < 0) {
+		DL_ERR("Cannot open /dev/null.");
+		return -1;
+	}
+	TRACE("[ %5d Opened /dev/null file-descriptor=%d]\n", apkenv_pid, dev_null);
 
-    /* If any of the stdio file descriptors is valid and not associated
-       with /dev/null, dup /dev/null to it.  */
-    for (i = 0; i < 3; i++) {
-        /* If it is /dev/null already, we are done. */
-        if (i == dev_null)
-            continue;
+	/* If any of the stdio file descriptors is valid and not associated
+	   with /dev/null, dup /dev/null to it.  */
+	for (i = 0; i < 3; i++) {
+		/* If it is /dev/null already, we are done. */
+		if (i == dev_null)
+			continue;
 
-        TRACE("[ %5d Nullifying stdio file descriptor %d]\n", apkenv_pid, i);
-        /* The man page of fcntl does not say that fcntl(..,F_GETFL)
-           can be interrupted but we do this just to be safe. */
-        do {
-          status = fcntl(i, F_GETFL);
-        } while (status < 0 && errno == EINTR);
+		TRACE("[ %5d Nullifying stdio file descriptor %d]\n", apkenv_pid, i);
+		/* The man page of fcntl does not say that fcntl(..,F_GETFL)
+		   can be interrupted but we do this just to be safe. */
+		do {
+			status = fcntl(i, F_GETFL);
+		} while (status < 0 && errno == EINTR);
 
-        /* If file is openned, we are good. */
-        if (status >= 0)
-          continue;
+		/* If file is openned, we are good. */
+		if (status >= 0)
+			continue;
 
-        /* The only error we allow is that the file descriptor does not
-           exist, in which case we dup /dev/null to it. */
-        if (errno != EBADF) {
-            DL_ERR("nullify_stdio: unhandled error %s", strerror(errno));
-            return_value = -1;
-            continue;
-        }
+		/* The only error we allow is that the file descriptor does not
+		   exist, in which case we dup /dev/null to it. */
+		if (errno != EBADF) {
+			DL_ERR("nullify_stdio: unhandled error %s", strerror(errno));
+			return_value = -1;
+			continue;
+		}
 
-        /* Try dupping /dev/null to this stdio file descriptor and
-           repeat if there is a signal.  Note that any errors in closing
-           the stdio descriptor are lost.  */
-        do {
-            status = dup2(dev_null, i);
-        } while (status < 0 && errno == EINTR);
+		/* Try dupping /dev/null to this stdio file descriptor and
+		   repeat if there is a signal.  Note that any errors in closing
+		   the stdio descriptor are lost.  */
+		do {
+			status = dup2(dev_null, i);
+		} while (status < 0 && errno == EINTR);
 
-        if (status < 0) {
-            DL_ERR("nullify_stdio: dup2 error %s", strerror(errno));
-            return_value = -1;
-            continue;
-        }
-    }
+		if (status < 0) {
+			DL_ERR("nullify_stdio: dup2 error %s", strerror(errno));
+			return_value = -1;
+			continue;
+		}
+	}
 
-    /* If /dev/null is not one of the stdio file descriptors, close it. */
-    if (dev_null > 2) {
-        TRACE("[ %5d Closing /dev/null file-descriptor=%d]\n", apkenv_pid, dev_null);
-        do {
-            status = close(dev_null);
-        } while (status < 0 && errno == EINTR);
+	/* If /dev/null is not one of the stdio file descriptors, close it. */
+	if (dev_null > 2) {
+		TRACE("[ %5d Closing /dev/null file-descriptor=%d]\n", apkenv_pid, dev_null);
+		do {
+			status = close(dev_null);
+		} while (status < 0 && errno == EINTR);
 
-        if (status < 0) {
-            DL_ERR("nullify_stdio: close error %s", strerror(errno));
-            return_value = -1;
-        }
-    }
+		if (status < 0) {
+			DL_ERR("nullify_stdio: close error %s", strerror(errno));
+			return_value = -1;
+		}
+	}
 
-    return return_value;
+	return return_value;
 }
 
 static void apkenv_wrap_function(void *sym_addr, char *sym_name, int is_thumb, soinfo *si)
 {
 #ifdef APKENV_LATEHOOKS
-    void *hook = NULL;
-    if((hook = apkenv_get_hooked_symbol(sym_name, 0)) != NULL)
-    {
-        // if we have a hook redirect the call to that by overwriting
-        // the first 2 instruction of the function
-        // this should work in any case unless the hook is wrong
-        // or the function shorter than 64-bit (2 32-Bit instructions)
-        if(!is_thumb)
-        {
-            DEBUG("HOOKING INTERNAL (ARM) FUNCTION %s@%x (in %s) TO: %x\n",sym_name,sym_addr,si->name,hook);
-            ((int32_t*)sym_addr)[0] = 0xe51ff004; // ldr pc, [pc, -#4] (load the hooks address into pc)
-            ((int32_t*)sym_addr)[1] = (uint32_t)wrapper_create(sym_name, hook);
+	void *hook = NULL;
+	if ((hook = apkenv_get_hooked_symbol(sym_name, 0)) != NULL) {
+		// if we have a hook redirect the call to that by overwriting
+		// the first 2 instruction of the function
+		// this should work in any case unless the hook is wrong
+		// or the function shorter than 64-bit (2 32-Bit instructions)
+		if (!is_thumb) {
+			DEBUG("HOOKING INTERNAL (ARM) FUNCTION %s@%x (in %s) TO: %x\n", sym_name, sym_addr, si->name, hook);
+			((int32_t *)sym_addr)[0] = 0xe51ff004; // ldr pc, [pc, -#4] (load the hooks address into pc)
+			((int32_t *)sym_addr)[1] = (uint32_t)wrapper_create(sym_name, hook);
 
-            __clear_cache((int32_t*)sym_addr, (int32_t*)sym_addr + 2);
-        }
-        else
-        {
-            DEBUG("HOOKING INTERNAL (THUMB) FUNCTION %s@%x (in %s) TO: %x\n",sym_name,sym_addr,si->name,hook);
-            sym_addr = (void*)((char*)sym_addr - 1); // get actual sym_addr
+			__clear_cache((int32_t *)sym_addr, (int32_t *)sym_addr + 2);
+		} else {
+			DEBUG("HOOKING INTERNAL (THUMB) FUNCTION %s@%x (in %s) TO: %x\n", sym_name, sym_addr, si->name, hook);
+			sym_addr = (void *)((char *)sym_addr - 1); // get actual sym_addr
 
-            ((int16_t*)sym_addr)[0] = 0xB401; /* push {r0} */
-            ((int16_t*)sym_addr)[1] = 0xF8DF; /* ldr r0, [pc, #8] */
-            ((int16_t*)sym_addr)[2] = 0x0008; /* continuation of last instruction */
-            ((int16_t*)sym_addr)[3] = 0x4684; /* mov ip, r0 */
-            ((int16_t*)sym_addr)[4] = 0xBC01; /* pop {r0} */
-            ((int16_t*)sym_addr)[5] = 0x4760; /* bx ip */
+			((int16_t *)sym_addr)[0] = 0xB401; /* push {r0} */
+			((int16_t *)sym_addr)[1] = 0xF8DF; /* ldr r0, [pc, #8] */
+			((int16_t *)sym_addr)[2] = 0x0008; /* continuation of last instruction */
+			((int16_t *)sym_addr)[3] = 0x4684; /* mov ip, r0 */
+			((int16_t *)sym_addr)[4] = 0xBC01; /* pop {r0} */
+			((int16_t *)sym_addr)[5] = 0x4760; /* bx ip */
 
-            void *wrp = wrapper_create(sym_name, hook);
+			void *wrp = wrapper_create(sym_name, hook);
 
-            // store the hooks address
-            ((int16_t*)sym_addr)[6] = (uint32_t)wrp & 0x0000FFFF;
-            ((int16_t*)sym_addr)[7] = (uint32_t)wrp >> 16;
+			// store the hooks address
+			((int16_t *)sym_addr)[6] = (uint32_t)wrp & 0x0000FFFF;
+			((int16_t *)sym_addr)[7] = (uint32_t)wrp >> 16;
 
-            __clear_cache((int16_t*)sym_addr, (int16_t*)sym_addr + 8);
-        }
-    }
-    else
+			__clear_cache((int16_t *)sym_addr, (int16_t *)sym_addr + 8);
+		}
+	} else
 #endif /* APKENV_LATEHOOKS */
-    // TODO: this will fail if the first 2 instructions do something pc related
-    // (this DOES NOT happen very often)
-    if(sym_addr && !is_thumb)
-    {
-        DEBUG("CREATING ARM WRAPPER FOR: %s@%p (in %s)\n", sym_name, sym_addr, si->name);
+		// TODO: this will fail if the first 2 instructions do something pc related
+		// (this DOES NOT happen very often)
+		if (sym_addr && !is_thumb) {
+			DEBUG("CREATING ARM WRAPPER FOR: %s@%p (in %s)\n", sym_name, sym_addr, si->name);
 
-        wrapper_create(sym_name, sym_addr);
-    }
-    // TODO: this will fail if the first 2-5 instructions do something pc related
-    // (this DOES happen very often)
-    else if(sym_addr && is_thumb)
-    {
-        DEBUG("CREATING THUMB WRAPPER FOR: %s@%p (in %s)\n",sym_name, sym_addr,si->name);
+			wrapper_create(sym_name, sym_addr);
+		}
+		// TODO: this will fail if the first 2-5 instructions do something pc related
+		// (this DOES happen very often)
+		else if (sym_addr && is_thumb) {
+			DEBUG("CREATING THUMB WRAPPER FOR: %s@%p (in %s)\n", sym_name, sym_addr, si->name);
 
-        wrapper_create(sym_name, sym_addr);
-    }
+			wrapper_create(sym_name, sym_addr);
+		}
 }
-
 
 /* Franz-Josef Haider apkenv_create_latehook_wrappers */
 static void apkenv_create_latehook_wrappers(soinfo *si)
 {
-    ElfW(Sym) *s;
+	ElfW(Sym) * s;
 
-    unsigned int n = 0;
-    for(n=0;n<si->nchain;n++)
-    {
-        s = si->symtab + n;
-        switch(ELF_ST_BIND(s->st_info))
-        {
-            case STB_GLOBAL:
-            case STB_WEAK:
-                if(s->st_shndx == 0) continue;
+	unsigned int n = 0;
+	for (n = 0; n < si->nchain; n++) {
+		s = si->symtab + n;
+		switch (ELF_ST_BIND(s->st_info)) {
+		case STB_GLOBAL:
+		case STB_WEAK:
+			if (s->st_shndx == 0)
+				continue;
 
-                if(ELF_ST_TYPE(s->st_info) == STT_FUNC) // only wrap functions
-                {
-                    char *sym_name = (char*)(si->strtab + s->st_name);
-                    void *sym_addr = (void*)(intptr_t)(si->base + s->st_value);
+			if (ELF_ST_TYPE(s->st_info) == STT_FUNC) // only wrap functions
+			{
+				char *sym_name = (char *)(si->strtab + s->st_name);
+				void *sym_addr = (void *)(intptr_t)(si->base + s->st_value);
 
-                    int is_thumb = ((int32_t)(intptr_t)sym_addr) & 0x00000001;
+				int is_thumb = ((int32_t)(intptr_t)sym_addr) & 0x00000001;
 
-                    apkenv_wrap_function(sym_addr,sym_name,is_thumb,si);
-               }
-        }
-    }
+				apkenv_wrap_function(sym_addr, sym_name, is_thumb, si);
+			}
+		}
+	}
 }
-
 
 static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
 {
-    ElfW(Phdr) *phdr = si->phdr;
-    int phnum = si->phnum;
+	ElfW(Phdr) *phdr = si->phdr;
+	int phnum = si->phnum;
 
-    INFO("[ %5d linking %s ]\n", apkenv_pid, si->name);
-    DEBUG("%5d si->base = 0x%016lx si->flags = 0x%08x\n", apkenv_pid,
-          si->base, si->flags);
+	INFO("[ %5d linking %s ]\n", apkenv_pid, si->name);
+	DEBUG("%5d si->base = 0x%016lx si->flags = 0x%08x\n", apkenv_pid,
+	      si->base, si->flags);
 
-    if (si->flags & (FLAG_EXE | FLAG_LINKER)) {
-        /* Locate the needed program segments (DYNAMIC/ARM_EXIDX) for
-         * linkage info if this is the executable or the linker itself.
-         * If this was a dynamic lib, that would have been done at load time.
-         *
-         * TODO: It's unfortunate that small pieces of this are
-         * repeated from the apkenv_load_library routine. Refactor this just
-         * slightly to reuse these bits.
-         */
-        si->size = 0;
-        for(; phnum > 0; --phnum, ++phdr) {
+	if (si->flags & (FLAG_EXE | FLAG_LINKER)) {
+		/* Locate the needed program segments (DYNAMIC/ARM_EXIDX) for
+		 * linkage info if this is the executable or the linker itself.
+		 * If this was a dynamic lib, that would have been done at load time.
+		 *
+		 * TODO: It's unfortunate that small pieces of this are
+		 * repeated from the apkenv_load_library routine. Refactor this just
+		 * slightly to reuse these bits.
+		 */
+		si->size = 0;
+		for (; phnum > 0; --phnum, ++phdr) {
 #if defined(__arm__)
-            if(phdr->p_type == PT_ARM_EXIDX) {
-                /* exidx entries (used for stack unwinding) are 8 bytes each.
-                 */
-                si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
-                si->ARM_exidx_count = phdr->p_memsz / 8;
-            }
+			if (phdr->p_type == PT_ARM_EXIDX) {
+				/* exidx entries (used for stack unwinding) are 8 bytes each.
+				 */
+				si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
+				si->ARM_exidx_count = phdr->p_memsz / 8;
+			}
 #endif
-            if (phdr->p_type == PT_LOAD) {
-                /* For the executable, we use the si->size field only in
-                   dl_unwind_find_exidx(), so the meaning of si->size
-                   is not the size of the executable; it is the distance
-                   between the load location of the executable and the last
-                   address of the loadable part of the executable.
-                   We use the range [si->base, si->base + si->size) to
-                   determine whether a PC value falls within the executable
-                   section. Of course, if a value is between si->base and
-                   (si->base + phdr->p_vaddr), it's not in the executable
-                   section, but a) we shouldn't be asking for such a value
-                   anyway, and b) if we have to provide an EXIDX for such a
-                   value, then the executable's EXIDX is probably the better
-                   choice.
-                */
-                DEBUG_DUMP_PHDR(phdr, "PT_LOAD", apkenv_pid);
-                if (phdr->p_vaddr + phdr->p_memsz > si->size)
-                    si->size = phdr->p_vaddr + phdr->p_memsz;
-                /* try to remember what range of addresses should be write
-                 * protected */
-                if (!(phdr->p_flags & PF_W)) {
-                    intptr_t _end;
+			if (phdr->p_type == PT_LOAD) {
+				/* For the executable, we use the si->size field only in
+				   dl_unwind_find_exidx(), so the meaning of si->size
+				   is not the size of the executable; it is the distance
+				   between the load location of the executable and the last
+				   address of the loadable part of the executable.
+				   We use the range [si->base, si->base + si->size) to
+				   determine whether a PC value falls within the executable
+				   section. Of course, if a value is between si->base and
+				   (si->base + phdr->p_vaddr), it's not in the executable
+				   section, but a) we shouldn't be asking for such a value
+				   anyway, and b) if we have to provide an EXIDX for such a
+				   value, then the executable's EXIDX is probably the better
+				   choice.
+				*/
+				DEBUG_DUMP_PHDR(phdr, "PT_LOAD", apkenv_pid);
+				if (phdr->p_vaddr + phdr->p_memsz > si->size)
+					si->size = phdr->p_vaddr + phdr->p_memsz;
+				/* try to remember what range of addresses should be write
+				 * protected */
+				if (!(phdr->p_flags & PF_W)) {
+					intptr_t _end;
 
-                    if (si->base + phdr->p_vaddr < si->wrprotect_start)
-                        si->wrprotect_start = si->base + phdr->p_vaddr;
-                    _end = (((si->base + phdr->p_vaddr + phdr->p_memsz + PAGE_SIZE - 1) &
-                             (~PAGE_MASK)));
-                    if (_end > si->wrprotect_end)
-                        si->wrprotect_end = _end;
-                    /* Make the section writable just in case we'll have to
-                     * write to it during relocation (i.e. text segment).
-                     * However, we will remember what range of addresses
-                     * should be write protected.
-                     */
-                    mprotect((void *) (si->base + phdr->p_vaddr),
-                             phdr->p_memsz,
-                             PFLAGS_TO_PROT(phdr->p_flags) | PROT_WRITE);
-                }
-            } else if (phdr->p_type == PT_DYNAMIC) {
-                if (si->dynamic != (ElfW(Dyn) *)-1) {
-                    DL_ERR("%5d multiple PT_DYNAMIC segments found in '%s'. "
-                          "Segment at 0x%016lx, previously one found at 0x%016lx",
-                          apkenv_pid, si->name, si->base + phdr->p_vaddr,
-                          (intptr_t)si->dynamic);
-                    goto fail;
-                }
-                DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
-                si->dynamic = (ElfW(Dyn) *) (si->base + phdr->p_vaddr);
-            } else if (phdr->p_type == PT_GNU_RELRO) {
-                if ((phdr->p_vaddr >= si->size)
-                        || ((phdr->p_vaddr + phdr->p_memsz) > si->size)
-                        || ((si->base + phdr->p_vaddr + phdr->p_memsz) < si->base)) {
-                    DL_ERR("%d invalid GNU_RELRO in '%s' "
-                           "p_vaddr=0x%016lx p_memsz=0x%016lx", apkenv_pid, si->name,
-                           phdr->p_vaddr, phdr->p_memsz);
-                    goto fail;
-                }
-                si->gnu_relro_start = (ElfW(Addr)) (si->base + phdr->p_vaddr);
-                si->gnu_relro_len = (size_t) phdr->p_memsz;
-            }
-        }
-    }
+					if (si->base + phdr->p_vaddr < si->wrprotect_start)
+						si->wrprotect_start = si->base + phdr->p_vaddr;
+					_end = (((si->base + phdr->p_vaddr + phdr->p_memsz + PAGE_SIZE - 1) &
+						 (~PAGE_MASK)));
+					if (_end > si->wrprotect_end)
+						si->wrprotect_end = _end;
+					/* Make the section writable just in case we'll have to
+					 * write to it during relocation (i.e. text segment).
+					 * However, we will remember what range of addresses
+					 * should be write protected.
+					 */
+					mprotect((void *)(si->base + phdr->p_vaddr),
+						 phdr->p_memsz,
+						 PFLAGS_TO_PROT(phdr->p_flags) | PROT_WRITE);
+				}
+			} else if (phdr->p_type == PT_DYNAMIC) {
+				if (si->dynamic != (ElfW(Dyn) *)-1) {
+					DL_ERR("%5d multiple PT_DYNAMIC segments found in '%s'. "
+					       "Segment at 0x%016lx, previously one found at 0x%016lx",
+					       apkenv_pid, si->name, si->base + phdr->p_vaddr,
+					       (intptr_t)si->dynamic);
+					goto fail;
+				}
+				DEBUG_DUMP_PHDR(phdr, "PT_DYNAMIC", apkenv_pid);
+				si->dynamic = (ElfW(Dyn) *)(si->base + phdr->p_vaddr);
+			} else if (phdr->p_type == PT_GNU_RELRO) {
+				if ((phdr->p_vaddr >= si->size) || ((phdr->p_vaddr + phdr->p_memsz) > si->size) || ((si->base + phdr->p_vaddr + phdr->p_memsz) < si->base)) {
+					DL_ERR("%d invalid GNU_RELRO in '%s' "
+					       "p_vaddr=0x%016lx p_memsz=0x%016lx",
+					       apkenv_pid, si->name,
+					       phdr->p_vaddr, phdr->p_memsz);
+					goto fail;
+				}
+				si->gnu_relro_start = (ElfW(Addr))(si->base + phdr->p_vaddr);
+				si->gnu_relro_len = (size_t)phdr->p_memsz;
+			}
+		}
+	}
 
-    if (si->dynamic == (ElfW(Dyn) *)-1) {
-        DL_ERR("%5d missing PT_DYNAMIC?!", apkenv_pid);
-        goto fail;
-    }
+	if (si->dynamic == (ElfW(Dyn) *)-1) {
+		DL_ERR("%5d missing PT_DYNAMIC?!", apkenv_pid);
+		goto fail;
+	}
 
-    DEBUG("%5d dynamic = %p\n", apkenv_pid, si->dynamic);
+	DEBUG("%5d dynamic = %p\n", apkenv_pid, si->dynamic);
 
-    /* extract useful information from dynamic section */
-    for(ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++){
-        DEBUG("%5d d = %p, d->d_tag = 0x%016lx d->d_un.d_val = 0x%016lx\n", apkenv_pid, d, d->d_tag, d->d_un.d_val);
-        switch(d->d_tag){
-        case DT_HASH:
-            si->nbucket = ((uint32_t *) (si->base + d->d_un.d_ptr))[0];
-            si->nchain = ((uint32_t *) (si->base + d->d_un.d_ptr))[1];
-            si->bucket = (uint32_t *) (si->base + d->d_un.d_ptr + 8);
-            si->chain = (uint32_t *) (si->base + d->d_un.d_ptr + 8 + si->nbucket * 4);
-            break;
-        case DT_STRTAB:
-            si->strtab = (const char *) (si->base + d->d_un.d_ptr);
-            break;
-        case DT_SYMTAB:
-            si->symtab = (ElfW(Sym) *) (si->base + d->d_un.d_ptr);
-            break;
+	/* extract useful information from dynamic section */
+	for (ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+		DEBUG("%5d d = %p, d->d_tag = 0x%016lx d->d_un.d_val = 0x%016lx\n", apkenv_pid, d, d->d_tag, d->d_un.d_val);
+		switch (d->d_tag) {
+		case DT_HASH:
+			si->nbucket = ((uint32_t *)(si->base + d->d_un.d_ptr))[0];
+			si->nchain = ((uint32_t *)(si->base + d->d_un.d_ptr))[1];
+			si->bucket = (uint32_t *)(si->base + d->d_un.d_ptr + 8);
+			si->chain = (uint32_t *)(si->base + d->d_un.d_ptr + 8 + si->nbucket * 4);
+			break;
+		case DT_STRTAB:
+			si->strtab = (const char *)(si->base + d->d_un.d_ptr);
+			break;
+		case DT_SYMTAB:
+			si->symtab = (ElfW(Sym) *)(si->base + d->d_un.d_ptr);
+			break;
 #if !defined(__LP64__)
-        case DT_PLTREL:
-            if(d->d_un.d_val != DT_REL) {
-                DL_ERR("DT_RELA not supported");
-                goto fail;
-            }
-            break;
+		case DT_PLTREL:
+			if (d->d_un.d_val != DT_REL) {
+				DL_ERR("DT_RELA not supported");
+				goto fail;
+			}
+			break;
 #endif
-        case DT_JMPREL:
+		case DT_JMPREL:
 #if defined(USE_RELA)
-            si->plt_rela = (ElfW(Rela) *)(si->base + d->d_un.d_ptr);
+			si->plt_rela = (ElfW(Rela) *)(si->base + d->d_un.d_ptr);
 #else
-            si->plt_rel = (ElfW(Rel) *)(si->base + d->d_un.d_ptr);
+			si->plt_rel = (ElfW(Rel) *)(si->base + d->d_un.d_ptr);
 #endif
 			break;
-        case DT_PLTRELSZ:
+		case DT_PLTRELSZ:
 #if defined(USE_RELA)
-            si->plt_rela_count = d->d_un.d_val / sizeof(ElfW(Rela));
+			si->plt_rela_count = d->d_un.d_val / sizeof(ElfW(Rela));
 #else
-            si->plt_rel_count = d->d_un.d_val / sizeof(ElfW(Rel));
+			si->plt_rel_count = d->d_un.d_val / sizeof(ElfW(Rel));
 #endif
-            break;
-        case DT_PLTGOT:
-            /* Save this in case we decide to do lazy binding. We don't yet. */
-            si->plt_got = (ElfW(Addr) **)(si->base + d->d_un.d_ptr);
-            break;
-        case DT_DEBUG:
-            // Set the DT_DEBUG entry to the addres of _r_debug for GDB
-            d->d_un.d_val = (uintptr_t)_r_debug_ptr;
-            break;
+			break;
+		case DT_PLTGOT:
+			/* Save this in case we decide to do lazy binding. We don't yet. */
+			si->plt_got = (ElfW(Addr) **)(si->base + d->d_un.d_ptr);
+			break;
+		case DT_DEBUG:
+			// Set the DT_DEBUG entry to the addres of _r_debug for GDB
+			d->d_un.d_val = (uintptr_t)_r_debug_ptr;
+			break;
 #if defined(USE_RELA)
-         case DT_RELA:
-            si->rela = (ElfW(Rela)*)(si->base + d->d_un.d_ptr);
-            break;
-         case DT_RELASZ:
-            si->rela_count = d->d_un.d_val / sizeof(ElfW(Rela));
-            break;
-        case DT_REL:
-            DL_ERR("unsupported DT_REL in \"%s\"", si->name);
-            return false;
-        case DT_RELSZ:
-            DL_ERR("unsupported DT_RELSZ in \"%s\"", si->name);
-            return false;
+		case DT_RELA:
+			si->rela = (ElfW(Rela) *)(si->base + d->d_un.d_ptr);
+			break;
+		case DT_RELASZ:
+			si->rela_count = d->d_un.d_val / sizeof(ElfW(Rela));
+			break;
+		case DT_REL:
+			DL_ERR("unsupported DT_REL in \"%s\"", si->name);
+			return false;
+		case DT_RELSZ:
+			DL_ERR("unsupported DT_RELSZ in \"%s\"", si->name);
+			return false;
 #else
-        case DT_REL:
-            si->rel = (ElfW(Rel)*)(si->base + d->d_un.d_ptr);
-            break;
-        case DT_RELSZ:
-            si->rel_count = d->d_un.d_val / sizeof(ElfW(Rel));
-            break;
-         case DT_RELA:
-            DL_ERR("unsupported DT_RELA in \"%s\"", si->name);
-            return false;
+		case DT_REL:
+			si->rel = (ElfW(Rel) *)(si->base + d->d_un.d_ptr);
+			break;
+		case DT_RELSZ:
+			si->rel_count = d->d_un.d_val / sizeof(ElfW(Rel));
+			break;
+		case DT_RELA:
+			DL_ERR("unsupported DT_RELA in \"%s\"", si->name);
+			return false;
 #endif
-        case DT_INIT:
-            si->init_func = (void (*)(void))(si->base + d->d_un.d_ptr);
-            DEBUG("%5d %s constructors (init func) found at %p\n",
-                  apkenv_pid, si->name, si->init_func);
-            break;
-        case DT_FINI:
-            si->fini_func = (void (*)(void))(si->base + d->d_un.d_ptr);
-            DEBUG("%5d %s destructors (fini func) found at %p\n",
-                  apkenv_pid, si->name, si->fini_func);
-            break;
-        case DT_INIT_ARRAY:
-            si->init_array = (intptr_t *)(si->base + d->d_un.d_ptr);
-            DEBUG("%5d %s constructors (init_array) found at %p\n",
-                  apkenv_pid, si->name, si->init_array);
-            break;
-        case DT_INIT_ARRAYSZ:
-            si->init_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
-            break;
-        case DT_FINI_ARRAY:
-            si->fini_array = (intptr_t *)(si->base + d->d_un.d_ptr);
-            DEBUG("%5d %s destructors (fini_array) found at %p\n",
-                  apkenv_pid, si->name, si->fini_array);
-            break;
-        case DT_FINI_ARRAYSZ:
-            si->fini_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
-            break;
-        case DT_PREINIT_ARRAY:
-            si->preinit_array = (intptr_t *)(si->base + d->d_un.d_ptr);
-            DEBUG("%5d %s constructors (preinit_array) found at %p\n",
-                  apkenv_pid, si->name, si->preinit_array);
-            break;
-        case DT_PREINIT_ARRAYSZ:
-            si->preinit_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
-            break;
-        case DT_TEXTREL:
-            /* TODO: make use of this. */
-            /* this means that we might have to write into where the text
-             * segment was loaded during relocation... Do something with
-             * it.
-             */
-            DEBUG("%5d Text segment should be writable during relocation.\n",
-                  apkenv_pid);
-            break;
-        }
-    }
+		case DT_INIT:
+			si->init_func = (void (*)(void))(si->base + d->d_un.d_ptr);
+			DEBUG("%5d %s constructors (init func) found at %p\n",
+			      apkenv_pid, si->name, si->init_func);
+			break;
+		case DT_FINI:
+			si->fini_func = (void (*)(void))(si->base + d->d_un.d_ptr);
+			DEBUG("%5d %s destructors (fini func) found at %p\n",
+			      apkenv_pid, si->name, si->fini_func);
+			break;
+		case DT_INIT_ARRAY:
+			si->init_array = (intptr_t *)(si->base + d->d_un.d_ptr);
+			DEBUG("%5d %s constructors (init_array) found at %p\n",
+			      apkenv_pid, si->name, si->init_array);
+			break;
+		case DT_INIT_ARRAYSZ:
+			si->init_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
+			break;
+		case DT_FINI_ARRAY:
+			si->fini_array = (intptr_t *)(si->base + d->d_un.d_ptr);
+			DEBUG("%5d %s destructors (fini_array) found at %p\n",
+			      apkenv_pid, si->name, si->fini_array);
+			break;
+		case DT_FINI_ARRAYSZ:
+			si->fini_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
+			break;
+		case DT_PREINIT_ARRAY:
+			si->preinit_array = (intptr_t *)(si->base + d->d_un.d_ptr);
+			DEBUG("%5d %s constructors (preinit_array) found at %p\n",
+			      apkenv_pid, si->name, si->preinit_array);
+			break;
+		case DT_PREINIT_ARRAYSZ:
+			si->preinit_array_count = ((size_t)d->d_un.d_val) / sizeof(ElfW(Addr));
+			break;
+		case DT_TEXTREL:
+			/* TODO: make use of this. */
+			/* this means that we might have to write into where the text
+			 * segment was loaded during relocation... Do something with
+			 * it.
+			 */
+			DEBUG("%5d Text segment should be writable during relocation.\n",
+			      apkenv_pid);
+			break;
+		}
+	}
 
-    DEBUG("%5d si->base = 0x%016lx, si->strtab = %p, si->symtab = %p\n",
-           apkenv_pid, si->base, si->strtab, si->symtab);
+	DEBUG("%5d si->base = 0x%016lx, si->strtab = %p, si->symtab = %p\n",
+	      apkenv_pid, si->base, si->strtab, si->symtab);
 
-    if((si->strtab == 0) || (si->symtab == 0)) {
-        DL_ERR("%5d missing essential tables", apkenv_pid);
-        goto fail;
-    }
+	if ((si->strtab == 0) || (si->symtab == 0)) {
+		DL_ERR("%5d missing essential tables", apkenv_pid);
+		goto fail;
+	}
 
-    /* if this is the main executable, then load all of the apkenv_preloads now */
-    if(si->flags & FLAG_EXE) {
-        int i;
-        memset(apkenv_preloads, 0, sizeof(apkenv_preloads));
-        for(i = 0; apkenv_ldpreload_names[i] != NULL; i++) {
-            soinfo *lsi = apkenv_find_library(apkenv_ldpreload_names[i], true, RTLD_NOW, NULL);
-            if(lsi == 0) {
-                apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
+	/* if this is the main executable, then load all of the apkenv_preloads now */
+	if (si->flags & FLAG_EXE) {
+		int i;
+		memset(apkenv_preloads, 0, sizeof(apkenv_preloads));
+		for (i = 0; apkenv_ldpreload_names[i] != NULL; i++) {
+			soinfo *lsi = apkenv_find_library(apkenv_ldpreload_names[i], true, RTLD_NOW, NULL);
+			if (lsi == 0) {
+				apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
 // not sure if this is "fixable", but worst case scenario is truncated error message, so silencing it
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
-                DL_ERR("%5d could not load needed library '%s' for '%s' (%s)",
-                       apkenv_pid, apkenv_ldpreload_names[i], si->name, apkenv_tmp_err_buf);
+				DL_ERR("%5d could not load needed library '%s' for '%s' (%s)",
+				       apkenv_pid, apkenv_ldpreload_names[i], si->name, apkenv_tmp_err_buf);
 #pragma GCC diagnostic pop
-                goto fail;
-            }
-            lsi->refcount++;
-            apkenv_preloads[i] = lsi;
-        }
-    }
-
-    for(ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
-        if(d->d_tag == DT_NEEDED){
-            DEBUG("%5d %s needs %s\n", apkenv_pid, si->name, si->strtab + d->d_un.d_val);
-            soinfo *lsi = NULL;
-            // if (get_builtin_lib_handle(si->strtab + d->d_un.d_val) == NULL)
-            lsi = apkenv_find_library(si->strtab + d->d_un.d_val, true, RTLD_NOW, NULL);
-            if(lsi == 0) {
-                /**
-                 * XXX Dirty Hack Alarm --thp XXX
-                 *
-                 * For libraries that are not found, simply use libdl's soinfo,
-                 * in order to not break downstream users of the library while
-                 * still allowing the application to start up.
-                 **/
-                lsi = &apkenv_libdl_info;
-                //apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
-                //DL_ERR("%5d could not load needed library '%s' for '%s' (%s)",
-                //       apkenv_pid, si->strtab + d->d_un.d_val, si->name, apkenv_tmp_err_buf);
-                //continue;
-                //goto fail;
-            }
-            /* Save the soinfo of the loaded DT_NEEDED library in the payload
-               of the DT_NEEDED entry itself, so that we can retrieve the
-               soinfo directly later from the dynamic segment.  This is a hack,
-               but it allows us to map from DT_NEEDED to soinfo efficiently
-               later on when we resolve relocations, trying to look up a symbol
-               with dlsym().
-            */
-            d->d_un.d_val = (intptr_t)lsi;
-            lsi->refcount++;
-        }
-    }
-
-#if defined(USE_RELA)
-    if (si->plt_rela != NULL) {
-        DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name );
-        if (apkenv_reloc_library(si, si->plt_rela, si->plt_rela_count))
-            goto fail;
+				goto fail;
+			}
+			lsi->refcount++;
+			apkenv_preloads[i] = lsi;
+		}
 	}
 
-    if (si->rela != NULL) {
-        DEBUG("[ %5d relocating %s ]\n", apkenv_pid, si->name );
-        if (apkenv_reloc_library(si, si->rela, si->rela_count))
-            goto fail;
-    }
+	for (ElfW(Dyn) *d = si->dynamic; d->d_tag != DT_NULL; d++) {
+		if (d->d_tag == DT_NEEDED) {
+			DEBUG("%5d %s needs %s\n", apkenv_pid, si->name, si->strtab + d->d_un.d_val);
+			soinfo *lsi = NULL;
+			// if (get_builtin_lib_handle(si->strtab + d->d_un.d_val) == NULL)
+			lsi = apkenv_find_library(si->strtab + d->d_un.d_val, true, RTLD_NOW, NULL);
+			if (lsi == 0) {
+				/**
+				 * XXX Dirty Hack Alarm --thp XXX
+				 *
+				 * For libraries that are not found, simply use libdl's soinfo,
+				 * in order to not break downstream users of the library while
+				 * still allowing the application to start up.
+				 **/
+				lsi = &apkenv_libdl_info;
+				// apkenv_strlcpy(apkenv_tmp_err_buf, apkenv_linker_get_error(), sizeof(apkenv_tmp_err_buf));
+				// DL_ERR("%5d could not load needed library '%s' for '%s' (%s)",
+				//        apkenv_pid, si->strtab + d->d_un.d_val, si->name, apkenv_tmp_err_buf);
+				// continue;
+				// goto fail;
+			}
+			/* Save the soinfo of the loaded DT_NEEDED library in the payload
+			   of the DT_NEEDED entry itself, so that we can retrieve the
+			   soinfo directly later from the dynamic segment.  This is a hack,
+			   but it allows us to map from DT_NEEDED to soinfo efficiently
+			   later on when we resolve relocations, trying to look up a symbol
+			   with dlsym().
+			*/
+			d->d_un.d_val = (intptr_t)lsi;
+			lsi->refcount++;
+		}
+	}
+
+#if defined(USE_RELA)
+	if (si->plt_rela != NULL) {
+		DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name);
+		if (apkenv_reloc_library(si, si->plt_rela, si->plt_rela_count))
+			goto fail;
+	}
+
+	if (si->rela != NULL) {
+		DEBUG("[ %5d relocating %s ]\n", apkenv_pid, si->name);
+		if (apkenv_reloc_library(si, si->rela, si->rela_count))
+			goto fail;
+	}
 #else
-    if(si->plt_rel) {
-        DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name );
-        if(apkenv_reloc_library(si, si->plt_rel, si->plt_rel_count))
-            goto fail;
-    }
-    if(si->rel) {
-        DEBUG("[ %5d relocating %s ]\n", apkenv_pid, si->name );
-        if(apkenv_reloc_library(si, si->rel, si->rel_count))
-            goto fail;
-    }
+	if (si->plt_rel) {
+		DEBUG("[ %5d relocating %s plt ]\n", apkenv_pid, si->name);
+		if (apkenv_reloc_library(si, si->plt_rel, si->plt_rel_count))
+			goto fail;
+	}
+	if (si->rel) {
+		DEBUG("[ %5d relocating %s ]\n", apkenv_pid, si->name);
+		if (apkenv_reloc_library(si, si->rel, si->rel_count))
+			goto fail;
+	}
 #endif
 
-    apkenv_create_latehook_wrappers(si);
+	apkenv_create_latehook_wrappers(si);
 
-    si->flags |= FLAG_LINKED;
-    DEBUG("[ %5d finished linking %s ]\n", apkenv_pid, si->name);
+	si->flags |= FLAG_LINKED;
+	DEBUG("[ %5d finished linking %s ]\n", apkenv_pid, si->name);
 
 #if 0
-    /* This is the way that the old dynamic linker did protection of
-     * non-writable areas. It would scan section headers and find where
-     * .text ended (rather where .data/.bss began) and assume that this is
-     * the upper range of the non-writable area. This is too coarse,
-     * and is kept here for reference until we fully move away from single
-     * segment elf objects. See the code in get_wr_offset (also #if'd 0)
-     * that made this possible.
-     */
-    if(wr_offset < 0xffffffff){
-        mprotect((void*) si->base, wr_offset, PROT_READ | PROT_EXEC);
-    }
+	/* This is the way that the old dynamic linker did protection of
+	* non-writable areas. It would scan section headers and find where
+	* .text ended (rather where .data/.bss began) and assume that this is
+	* the upper range of the non-writable area. This is too coarse,
+	* and is kept here for reference until we fully move away from single
+	* segment elf objects. See the code in get_wr_offset (also #if'd 0)
+	* that made this possible.
+	*/
+	if(wr_offset < 0xffffffff){
+	mprotect((void*) si->base, wr_offset, PROT_READ | PROT_EXEC);
+}
 #else
-    /* TODO: Verify that this does the right thing in all cases, as it
-     * presently probably does not. It is possible that an ELF image will
-     * come with multiple read-only segments. What we ought to do is scan
-     * the program headers again and mprotect all the read-only segments.
-     * To prevent re-scanning the program header, we would have to build a
-     * list of loadable segments in si, and then scan that instead. */
-    if (si->wrprotect_start != 0xffffffff && si->wrprotect_end != 0) {
-        mprotect((void *)(intptr_t)si->wrprotect_start,
-                 si->wrprotect_end - si->wrprotect_start,
-                 PROT_READ | PROT_EXEC);
-    }
+	/* TODO: Verify that this does the right thing in all cases, as it
+	 * presently probably does not. It is possible that an ELF image will
+	 * come with multiple read-only segments. What we ought to do is scan
+	 * the program headers again and mprotect all the read-only segments.
+	 * To prevent re-scanning the program header, we would have to build a
+	 * list of loadable segments in si, and then scan that instead. */
+	if (si->wrprotect_start != 0xffffffff && si->wrprotect_end != 0) {
+		mprotect((void *)(intptr_t)si->wrprotect_start,
+			 si->wrprotect_end - si->wrprotect_start,
+			 PROT_READ | PROT_EXEC);
+	}
 #endif
 
-    if (si->gnu_relro_start != 0 && si->gnu_relro_len != 0) {
-        ElfW(Addr) start = (si->gnu_relro_start & ~PAGE_MASK);
-        size_t len = (si->gnu_relro_start - start) + si->gnu_relro_len;
-        if (mprotect((void *)(intptr_t)start, len, PROT_READ) < 0) {
-            DL_ERR("%5d GNU_RELRO mprotect of library '%s' failed: %d (%s)\n",
-                   apkenv_pid, si->name, errno, strerror(errno));
-            goto fail;
-        }
-    }
+	if (si->gnu_relro_start != 0 && si->gnu_relro_len != 0) {
+		ElfW(Addr) start = (si->gnu_relro_start & ~PAGE_MASK);
+		size_t len = (si->gnu_relro_start - start) + si->gnu_relro_len;
+		if (mprotect((void *)(intptr_t)start, len, PROT_READ) < 0) {
+			DL_ERR("%5d GNU_RELRO mprotect of library '%s' failed: %d (%s)\n",
+			       apkenv_pid, si->name, errno, strerror(errno));
+			goto fail;
+		}
+	}
 
-    /* If this is a SET?ID program, dup /dev/null to opened stdin,
-       stdout and stderr to close a security hole described in:
+	/* If this is a SET?ID program, dup /dev/null to opened stdin,
+	   stdout and stderr to close a security hole described in:
 
-    ftp://ftp.freebsd.org/pub/FreeBSD/CERT/advisories/FreeBSD-SA-02:23.stdio.asc
+	ftp://ftp.freebsd.org/pub/FreeBSD/CERT/advisories/FreeBSD-SA-02:23.stdio.asc
 
-     */
-    if (apkenv_program_is_setuid)
-        apkenv_nullify_closed_stdio ();
-    apkenv_notify_gdb_of_load(si);
-    return 0;
+	 */
+	if (apkenv_program_is_setuid)
+		apkenv_nullify_closed_stdio();
+	apkenv_notify_gdb_of_load(si);
+	return 0;
 
 fail:
-    ERROR("failed to link %s\n", si->name);
-    si->flags |= FLAG_ERROR;
-    return -1;
+	ERROR("failed to link %s\n", si->name);
+	si->flags |= FLAG_ERROR;
+	return -1;
 }
 
 void dl_parse_library_path(const char *path, char *delim)
 {
-    size_t len;
-    char *apkenv_ldpaths_bufp = apkenv_ldpaths_buf;
-    int i = 0;
+	size_t len;
+	char *apkenv_ldpaths_bufp = apkenv_ldpaths_buf;
+	int i = 0;
 
-    len = apkenv_strlcpy(apkenv_ldpaths_buf, path, sizeof(apkenv_ldpaths_buf));
+	len = apkenv_strlcpy(apkenv_ldpaths_buf, path, sizeof(apkenv_ldpaths_buf));
 
-    while (i < LDPATH_MAX && (apkenv_ldpaths[i] = strsep(&apkenv_ldpaths_bufp, delim))) {
-        if (*apkenv_ldpaths[i] != '\0')
-            ++i;
-    }
+	while (i < LDPATH_MAX && (apkenv_ldpaths[i] = strsep(&apkenv_ldpaths_bufp, delim))) {
+		if (*apkenv_ldpaths[i] != '\0')
+			++i;
+	}
 
-    /* Forget the last path if we had to truncate; this occurs if the 2nd to
-     * last char isn't '\0' (i.e. not originally a delim). */
-    if (i > 0 && len >= sizeof(apkenv_ldpaths_buf) &&
-            apkenv_ldpaths_buf[sizeof(apkenv_ldpaths_buf) - 2] != '\0') {
-        apkenv_ldpaths[i - 1] = NULL;
-    } else {
-        apkenv_ldpaths[i] = NULL;
-    }
+	/* Forget the last path if we had to truncate; this occurs if the 2nd to
+	 * last char isn't '\0' (i.e. not originally a delim). */
+	if (i > 0 && len >= sizeof(apkenv_ldpaths_buf) &&
+	    apkenv_ldpaths_buf[sizeof(apkenv_ldpaths_buf) - 2] != '\0') {
+		apkenv_ldpaths[i - 1] = NULL;
+	} else {
+		apkenv_ldpaths[i] = NULL;
+	}
 }

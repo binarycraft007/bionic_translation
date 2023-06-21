@@ -29,11 +29,11 @@
 #ifndef _LINKER_H_
 #define _LINKER_H_
 
-#include <unistd.h>
-#include <sys/types.h>
 #include <elf.h>
 #include <link.h>
 #include <stdbool.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #if defined(__aarch64__) || defined(__x86_64__)
 #define USE_RELA
@@ -45,7 +45,7 @@
 #define PAGE_MASK 4095
 
 #ifndef R_AARCH64_TLS_DTPREL32
-#define R_AARCH64_TLS_DTPREL32	1031
+#define R_AARCH64_TLS_DTPREL32 1031
 #pragma message "The R_AARCH64_TLS_DTPREL32 was not set :("
 #endif
 
@@ -56,77 +56,76 @@ void apkenv_debugger_init();
 #if 0
 struct link_map
 {
-    uintptr_t l_addr;
-    char * l_name;
-    uintptr_t l_ld;
-    struct link_map * l_next;
-    struct link_map * l_prev;
+	uintptr_t l_addr;
+	char * l_name;
+	uintptr_t l_ld;
+	struct link_map * l_next;
+	struct link_map * l_prev;
 };
 
 /* needed for dl_iterate_phdr to be passed to the callbacks provided */
 struct dl_phdr_info
 {
-    ElfW(Addr) dlpi_addr;
-    const char *dlpi_name;
-    const ElfW(Phdr) *dlpi_phdr;
-    ElfW(Half) dlpi_phnum;
+	ElfW(Addr) dlpi_addr;
+	const char *dlpi_name;
+	const ElfW(Phdr) *dlpi_phdr;
+	ElfW(Half) dlpi_phnum;
 };
 
 
 // Values for r_debug->state
 enum {
-    RT_CONSISTENT,
-    RT_ADD,
-    RT_DELETE
+	RT_CONSISTENT,
+	RT_ADD,
+	RT_DELETE
 };
 
 struct r_debug
 {
-    int32_t r_version;
-    struct link_map * r_map;
-    void (*r_brk)(void);
-    int32_t r_state;
-    uintptr_t r_ldbase;
+	int32_t r_version;
+	struct link_map * r_map;
+	void (*r_brk)(void);
+	int32_t r_state;
+	uintptr_t r_ldbase;
 };
 #endif
 
 typedef struct soinfo soinfo;
 
-#define FLAG_LINKED     0x00000001
-#define FLAG_ERROR      0x00000002
-#define FLAG_EXE        0x00000004 // The main executable
-#define FLAG_LINKER     0x00000010 // The linker itself
+#define FLAG_LINKED	0x00000001
+#define FLAG_ERROR	0x00000002
+#define FLAG_EXE	0x00000004 // The main executable
+#define FLAG_LINKER	0x00000010 // The linker itself
 
 #define SOINFO_NAME_LEN 128
 
-struct soinfo
-{
-    const char name[SOINFO_NAME_LEN];
-    ElfW(Phdr) *phdr;
-    size_t phnum;
-    ElfW(Addr) entry;
-    ElfW(Addr) base;
-    size_t size;
+struct soinfo {
+	const char name[SOINFO_NAME_LEN];
+	ElfW(Phdr) *phdr;
+	size_t phnum;
+	ElfW(Addr) entry;
+	ElfW(Addr) base;
+	size_t size;
 
-    uint32_t unused;  // DO NOT USE, maintained for compatibility.
+	uint32_t unused; // DO NOT USE, maintained for compatibility.
 
-    ElfW(Dyn) *dynamic;
+	ElfW(Dyn) *dynamic;
 
-    uint32_t wrprotect_start;
-    uint32_t wrprotect_end;
+	uint32_t wrprotect_start;
+	uint32_t wrprotect_end;
 
-    soinfo *next;
-    uint32_t flags;
+	soinfo *next;
+	uint32_t flags;
 
-    const char *strtab;
-    ElfW(Sym) *symtab;
+	const char *strtab;
+	ElfW(Sym) *symtab;
 
-    size_t nbucket;
-    size_t nchain;
-    uint32_t *bucket;
-    uint32_t *chain;
+	size_t nbucket;
+	size_t nchain;
+	uint32_t *bucket;
+	uint32_t *chain;
 
-    ElfW(Addr) **plt_got;
+	ElfW(Addr) **plt_got;
 
 #if defined(USE_RELA)
 	ElfW(Rela) *plt_rela;
@@ -140,19 +139,19 @@ struct soinfo
 	size_t rel_count;
 #endif
 
-    intptr_t *preinit_array;
-    size_t preinit_array_count;
+	intptr_t *preinit_array;
+	size_t preinit_array_count;
 
-    intptr_t *init_array;
-    size_t init_array_count;
-    intptr_t *fini_array;
-    size_t fini_array_count;
+	intptr_t *init_array;
+	size_t init_array_count;
+	intptr_t *fini_array;
+	size_t fini_array_count;
 
-    void (*init_func)(void);
-    void (*fini_func)(void);
+	void (*init_func)(void);
+	void (*fini_func)(void);
 
 #if defined(__arm__)
-  // ARM EABI section used for stack unwinding.
+	// ARM EABI section used for stack unwinding.
 	uint32_t *ARM_exidx;
 	size_t ARM_exidx_count;
 #elif defined(__mips__)
@@ -161,39 +160,38 @@ struct soinfo
 	uint32_t mips_gotsym;
 #endif
 
-    size_t refcount;
-    struct link_map linkmap;
+	size_t refcount;
+	struct link_map linkmap;
 
-    bool constructors_called;
+	bool constructors_called;
 
-    ElfW(Addr) gnu_relro_start;
-    unsigned gnu_relro_len;
+	ElfW(Addr) gnu_relro_start;
+	unsigned gnu_relro_len;
 
-    /* apkenv stuff */
-    char fullpath[SOINFO_NAME_LEN];
+	/* apkenv stuff */
+	char fullpath[SOINFO_NAME_LEN];
 };
-
 
 extern soinfo apkenv_libdl_info;
 
 #ifndef DT_INIT_ARRAY
-#define DT_INIT_ARRAY      25
+#define DT_INIT_ARRAY 25
 #endif
 
 #ifndef DT_FINI_ARRAY
-#define DT_FINI_ARRAY      26
+#define DT_FINI_ARRAY 26
 #endif
 
 #ifndef DT_INIT_ARRAYSZ
-#define DT_INIT_ARRAYSZ    27
+#define DT_INIT_ARRAYSZ 27
 #endif
 
 #ifndef DT_FINI_ARRAYSZ
-#define DT_FINI_ARRAYSZ    28
+#define DT_FINI_ARRAYSZ 28
 #endif
 
 #ifndef DT_PREINIT_ARRAY
-#define DT_PREINIT_ARRAY   32
+#define DT_PREINIT_ARRAY 32
 #endif
 
 #ifndef DT_PREINIT_ARRAYSZ

@@ -38,13 +38,13 @@
 /* set LINKER_DEBUG_TO_LOG to 1 to send the logs to logcat,
  * or 0 to use stdout instead.
  */
-#define LINKER_DEBUG_TO_LOG  0
-#define TRACE_DEBUG          1
-#define DO_TRACE_LOOKUP      1
-#define DO_TRACE_RELO        1
-#define TIMING               0
-#define STATS                0
-#define COUNT_PAGES          0
+#define LINKER_DEBUG_TO_LOG 0
+#define TRACE_DEBUG	    1
+#define DO_TRACE_LOOKUP	    1
+#define DO_TRACE_RELO	    1
+#define TIMING		    0
+#define STATS		    0
+#define COUNT_PAGES	    0
 
 /*********************************************************************
  * You shouldn't need to modify anything below unless you are adding
@@ -53,12 +53,11 @@
  * To enable/disable specific debug options, change the defines above
  *********************************************************************/
 
-
 /*********************************************************************/
 #undef TRUE
 #undef FALSE
-#define TRUE                 1
-#define FALSE                0
+#define TRUE  1
+#define FALSE 0
 
 /* Only use printf() during debugging.  We have seen occasional memory
  * corruption when the linker uses printf().
@@ -68,96 +67,116 @@
 extern int apkenv_debug_verbosity;
 #if LINKER_DEBUG_TO_LOG
 extern int apkenv_format_log(int, const char *, const char *, ...);
-#define _PRINTVF(v,f,x...)                                        \
-    do {                                                          \
-        if (apkenv_debug_verbosity > (v)) apkenv_format_log(5-(v),"linker",x);  \
-    } while (0)
+#define _PRINTVF(v, f, x...)                                     \
+	do {                                                     \
+		if (apkenv_debug_verbosity > (v))                \
+			apkenv_format_log(5 - (v), "linker", x); \
+	} while (0)
 #else /* !LINKER_DEBUG_TO_LOG */
-#define _PRINTVF(v,f,x...)                           \
-    do {                                             \
-        if (apkenv_debug_verbosity > (v)) fprintf(stderr, x);        \
-    } while (0)
+#define _PRINTVF(v, f, x...)                      \
+	do {                                      \
+		if (apkenv_debug_verbosity > (v)) \
+			fprintf(stderr, x);       \
+	} while (0)
 #endif /* !LINKER_DEBUG_TO_LOG */
-#else /* !LINKER_DEBUG */
-#define _PRINTVF(v,f,x...)   do {} while(0)
+#else  /* !LINKER_DEBUG */
+#define _PRINTVF(v, f, x...) \
+	do {                 \
+	} while (0)
 #endif /* LINKER_DEBUG */
 
-#define PRINT(x...)          printf("PRINT: " x)
-#define INFO(x...)           printf("INFO: " x)
-#define TRACE(x...)          printf("TRACE: " x)
-#define WARN(fmt,args...)    \
-        printf("%s:%d| WARNING: " fmt, __FILE__, __LINE__, ## args)
-#define ERROR(fmt,args...)    \
-        printf("%s:%d| ERROR: " fmt, __FILE__, __LINE__, ## args)
-
+#define PRINT(x...) printf("PRINT: " x)
+#define INFO(x...)  printf("INFO: " x)
+#define TRACE(x...) printf("TRACE: " x)
+#define WARN(fmt, args...) \
+	printf("%s:%d| WARNING: " fmt, __FILE__, __LINE__, ##args)
+#define ERROR(fmt, args...) \
+	printf("%s:%d| ERROR: " fmt, __FILE__, __LINE__, ##args)
 
 #if TRACE_DEBUG
-#define DEBUG(x...)          printf("DEBUG: " x)
+#define DEBUG(x...) printf("DEBUG: " x)
 #else /* !TRACE_DEBUG */
-#define DEBUG(x...)          do {} while (0)
+#define DEBUG(x...) \
+	do {        \
+	} while (0)
 #endif /* TRACE_DEBUG */
 
 #if LINKER_DEBUG
-#define TRACE_TYPE(t,x...)   do { if (DO_TRACE_##t) { TRACE(x); } } while (0)
-#else  /* !LINKER_DEBUG */
-#define TRACE_TYPE(t,x...)   do {} while (0)
+#define TRACE_TYPE(t, x...)         \
+	do {                        \
+		if (DO_TRACE_##t) { \
+			TRACE(x);   \
+		}                   \
+	} while (0)
+#else /* !LINKER_DEBUG */
+#define TRACE_TYPE(t, x...) \
+	do {                \
+	} while (0)
 #endif /* LINKER_DEBUG */
 
 #if STATS
-#define RELOC_ABSOLUTE        0
-#define RELOC_RELATIVE        1
-#define RELOC_COPY            2
-#define RELOC_SYMBOL          3
-#define NUM_RELOC_STATS       4
+#define RELOC_ABSOLUTE	0
+#define RELOC_RELATIVE	1
+#define RELOC_COPY	2
+#define RELOC_SYMBOL	3
+#define NUM_RELOC_STATS 4
 
 struct _link_stats {
-    int reloc[NUM_RELOC_STATS];
+	int reloc[NUM_RELOC_STATS];
 };
 extern struct _link_stats apkenv_linker_stats;
 
-#define COUNT_RELOC(type)                                 \
-        do { if (type >= 0 && type < NUM_RELOC_STATS) {   \
-                apkenv_linker_stats.reloc[type] += 1;            \
-             } else  {                                    \
-                PRINT("Unknown reloc stat requested\n");  \
-             }                                            \
-           } while(0)
+#define COUNT_RELOC(type)                                        \
+	do {                                                     \
+		if (type >= 0 && type < NUM_RELOC_STATS) {       \
+			apkenv_linker_stats.reloc[type] += 1;    \
+		} else {                                         \
+			PRINT("Unknown reloc stat requested\n"); \
+		}                                                \
+	} while (0)
 #else /* !STATS */
-#define COUNT_RELOC(type)     do {} while(0)
+#define COUNT_RELOC(type) \
+	do {              \
+	} while (0)
 #endif /* STATS */
 
 #if TIMING
 #undef WARN
-#define WARN(x...)           do {} while (0)
+#define WARN(x...) \
+	do {       \
+	} while (0)
 #endif /* TIMING */
 
 #if COUNT_PAGES
 extern unsigned apkenv_bitmask[];
 #if defined(__LP64__)
-#define MARK(offset) \
-    do { \
-        if ((((offset) >> 12) >> 5) < 4096) \
-            apkenv_bitmask[((offset) >> 12) >> 5] |= (1 << (((offset) >> 12) & 31)); \
-    } while (0)
+#define MARK(offset)                                                                             \
+	do {                                                                                     \
+		if ((((offset) >> 12) >> 5) < 4096)                                              \
+			apkenv_bitmask[((offset) >> 12) >> 5] |= (1 << (((offset) >> 12) & 31)); \
+	} while (0)
 #else
-#define MARK(offset) \
-    do { \
-        apkenv_bitmask[((offset) >> 12) >> 3] |= (1 << (((offset) >> 12) & 7)); \
-    } while (0)
+#define MARK(offset)                                                                    \
+	do {                                                                            \
+		apkenv_bitmask[((offset) >> 12) >> 3] |= (1 << (((offset) >> 12) & 7)); \
+	} while (0)
 #endif
 #else
-#define MARK(x)              do {} while (0)
+#define MARK(x) \
+	do {    \
+	} while (0)
 #endif
 
-#define DEBUG_DUMP_PHDR(phdr, name, pid) do { \
-        DEBUG("%5d %s (phdr = 0x%016lx)\n", (pid), (name), (uint64_t)(phdr));   \
-        DEBUG("\t\tphdr->offset   = 0x%016lx\n", (uint64_t)((phdr)->p_offset)); \
-        DEBUG("\t\tphdr->p_vaddr  = 0x%016lx\n", (uint64_t)((phdr)->p_vaddr));  \
-        DEBUG("\t\tphdr->p_paddr  = 0x%016lx\n", (uint64_t)((phdr)->p_paddr));  \
-        DEBUG("\t\tphdr->p_filesz = 0x%016lx\n", (uint64_t)((phdr)->p_filesz)); \
-        DEBUG("\t\tphdr->p_memsz  = 0x%016lx\n", (uint64_t)((phdr)->p_memsz));  \
-        DEBUG("\t\tphdr->p_flags  = 0x%016lx\n", (uint64_t)((phdr)->p_flags));  \
-        DEBUG("\t\tphdr->p_align  = 0x%016lx\n", (uint64_t)((phdr)->p_align));  \
-    } while (0)
+#define DEBUG_DUMP_PHDR(phdr, name, pid)                                                \
+	do {                                                                            \
+		DEBUG("%5d %s (phdr = 0x%016lx)\n", (pid), (name), (uint64_t)(phdr));   \
+		DEBUG("\t\tphdr->offset   = 0x%016lx\n", (uint64_t)((phdr)->p_offset)); \
+		DEBUG("\t\tphdr->p_vaddr  = 0x%016lx\n", (uint64_t)((phdr)->p_vaddr));  \
+		DEBUG("\t\tphdr->p_paddr  = 0x%016lx\n", (uint64_t)((phdr)->p_paddr));  \
+		DEBUG("\t\tphdr->p_filesz = 0x%016lx\n", (uint64_t)((phdr)->p_filesz)); \
+		DEBUG("\t\tphdr->p_memsz  = 0x%016lx\n", (uint64_t)((phdr)->p_memsz));  \
+		DEBUG("\t\tphdr->p_flags  = 0x%016lx\n", (uint64_t)((phdr)->p_flags));  \
+		DEBUG("\t\tphdr->p_align  = 0x%016lx\n", (uint64_t)((phdr)->p_align));  \
+	} while (0)
 
 #endif /* _LINKER_DEBUG_H_ */

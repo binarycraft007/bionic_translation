@@ -33,4 +33,3 @@
 void __attribute__((noinline)) apkenv_rtld_db_dlactivity(void)
 {
 }
-
