@@ -1,28 +1,28 @@
-#include <unistd.h>
-#include <setjmp.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <signal.h>
+#include "../wrapper/verbose.h"
+#include <assert.h>
+#include <dirent.h>
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
-#include <dirent.h>
-#include <assert.h>
-#include <errno.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/syscall.h>
-#include <sys/user.h> // PAGE_SIZE, PAGE_SHIFT
 #include <netdb.h> // h_errno
-#include  "../wrapper/verbose.h"
+#include <setjmp.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/user.h> // PAGE_SIZE, PAGE_SHIFT
+#include <unistd.h>
 
 struct bionic_dirent {
-   uint64_t d_ino;
-   int64_t d_off;
-   unsigned short d_reclen;
-   unsigned char d_type;
-   char d_name[256];
+	uint64_t d_ino;
+	int64_t d_off;
+	unsigned short d_reclen;
+	unsigned char d_type;
+	char d_name[256];
 };
 
 #if defined(__i386__)
@@ -30,42 +30,41 @@ typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
 	union {
 		void (*bsa_handler)(int);
-		void (*bsa_sigaction)(int, void*, void*);
+		void (*bsa_sigaction)(int, void *, void *);
 	};
 	bionic_sigset_t sa_mask;
 	int sa_flags;
 	void (*sa_restorer)(void);
 };
-#elif defined (__x86_64__) || defined(__aarch64__) // for 64bit arches, `sa_flags` is in a different place
+#elif defined(__x86_64__) || defined(__aarch64__) // for 64bit arches, `sa_flags` is in a different place
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
 	unsigned int sa_flags;
 	union {
 		void (*bsa_handler)(int);
-		void (*bsa_sigaction)(int, void*, void*);
+		void (*bsa_sigaction)(int, void *, void *);
 	};
 	bionic_sigset_t sa_mask;
 	void (*sa_restorer)(void);
 };
 #else
-	#error "bionic_sigaction not implemented for this platform"
+#error "bionic_sigaction not implemented for this platform"
 #endif
 
 // Stuff that doesn't exist in glibc
 
-#define PROP_NAME_MAX   32
-#define PROP_VALUE_MAX  92
+#define PROP_NAME_MAX  32
+#define PROP_VALUE_MAX 92
 
-int
-__system_property_get(const char *name, char *value)
+int __system_property_get(const char *name, char *value)
 {
-   verbose("%s", name);
+	verbose("%s", name);
 
-   if (!strcmp(name, "ro.build.version.sdk"))
-      return snprintf(value, PROP_VALUE_MAX, "%d", 15);
+	if (!strcmp(name, "ro.build.version.sdk"))
+		return snprintf(value, PROP_VALUE_MAX, "%d", 15);
 
-   *value = 0;
-   return 0;
+	*value = 0;
+	return 0;
 }
 
 size_t strlcpy(char *dst, const char *src, size_t size)
@@ -75,30 +74,27 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 }
 
 #ifndef strtoll_l
-long long int strtoll_l (const char *restrict nptr, char **restrict endptr, int base, locale_t loc)
+long long int strtoll_l(const char *restrict nptr, char **restrict endptr, int base, locale_t loc)
 {
 	return strtoll(nptr, endptr, base);
 }
 #endif
 
-pid_t
-gettid(void)
+pid_t gettid(void)
 {
-   return syscall(SYS_gettid);
+	return syscall(SYS_gettid);
 }
 
-int
-tgkill(int tgid, int tid, int sig)
+int tgkill(int tgid, int tid, int sig)
 {
-   verbose("%d, %d, %d", tgid, tid, sig);
-   return syscall(SYS_tgkill, tgid, tid, sig);
+	verbose("%d, %d, %d", tgid, tid, sig);
+	return syscall(SYS_tgkill, tgid, tid, sig);
 }
 
-int
-tkill(int tid, int sig)
+int tkill(int tid, int sig)
 {
-   verbose("%d, %d", tid, sig);
-   return syscall(SYS_tkill, tid, sig);
+	verbose("%d, %d", tid, sig);
+	return syscall(SYS_tkill, tid, sig);
 }
 
 // Stuff needed for runtime compatibility, but not neccessary for linking
@@ -120,182 +116,171 @@ size_t __real_IO_file_xsputn(FILE *f, const void *buf, size_t n) { return 0; }
 
 const unsigned int bionic___page_size = PAGE_SIZE;
 
-__attribute_const__ int*
+__attribute_const__ int *
 bionic___errno(void)
 {
-   return __errno_location();
+	return __errno_location();
 }
 
-__attribute_const__ int*
+__attribute_const__ int *
 bionic___get_h_errno(void)
 {
-   return &h_errno;
+	return &h_errno;
 }
 
-int
-bionic_stat(const char *restrict path, struct stat *restrict buf)
+int bionic_stat(const char *restrict path, struct stat *restrict buf)
 {
-   verbose("%s", path);
-   return stat(path, buf);
+	verbose("%s", path);
+	return stat(path, buf);
 }
 
-int
-bionic_lstat(const char *restrict path, struct stat *restrict buf)
+int bionic_lstat(const char *restrict path, struct stat *restrict buf)
 {
-   verbose("%s", path);
-   return lstat(path, buf);
+	verbose("%s", path);
+	return lstat(path, buf);
 }
 
-int
-bionic_fstat(int fd, struct stat *buf)
+int bionic_fstat(int fd, struct stat *buf)
 {
-   verbose("%d", fd);
-   return fstat(fd, buf);
+	verbose("%d", fd);
+	return fstat(fd, buf);
 }
 
-int
-bionic_fstatat(int dirfd, const char *pathname, void *buf, int flags)
+int bionic_fstatat(int dirfd, const char *pathname, void *buf, int flags)
 {
-   verbose("%d, %s", dirfd, pathname);
-   return fstatat(dirfd, pathname, buf, flags);
+	verbose("%d, %s", dirfd, pathname);
+	return fstatat(dirfd, pathname, buf, flags);
 }
 
 static void
 glibc_dirent_to_bionic_dirent(const struct dirent *de, struct bionic_dirent *bde)
 {
-   assert(bde && de);
-   *bde = (struct bionic_dirent){
-      .d_ino = de->d_ino,
-      .d_off = de->d_off,
-      .d_reclen = de->d_reclen,
-      .d_type = de->d_type,
-   };
-   _Static_assert(sizeof(bde->d_name) >= sizeof(de->d_name), "bionic_dirent can't hold dirent's d_name");
-   memcpy(bde->d_name, de->d_name, sizeof(bde->d_name));
+	assert(bde && de);
+	*bde = (struct bionic_dirent){
+	    .d_ino = de->d_ino,
+	    .d_off = de->d_off,
+	    .d_reclen = de->d_reclen,
+	    .d_type = de->d_type,
+	};
+	_Static_assert(sizeof(bde->d_name) >= sizeof(de->d_name), "bionic_dirent can't hold dirent's d_name");
+	memcpy(bde->d_name, de->d_name, sizeof(bde->d_name));
 }
 
-struct bionic_dirent*
+struct bionic_dirent *
 bionic_readdir(DIR *dirp)
 {
-   assert(dirp);
-   static struct bionic_dirent bde;
-   struct dirent *de;
-   if (!(de = readdir(dirp)))
-      return NULL;
-   glibc_dirent_to_bionic_dirent(de, &bde);
-   return &bde;
+	assert(dirp);
+	static struct bionic_dirent bde;
+	struct dirent *de;
+	if (!(de = readdir(dirp)))
+		return NULL;
+	glibc_dirent_to_bionic_dirent(de, &bde);
+	return &bde;
 }
 
 // readdir_r is deprecated in glibc, but as long as it exists, it makes sense to use it for implementing the bionic variant
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-int
-bionic_readdir_r(DIR *dirp, struct bionic_dirent *entry, struct bionic_dirent **result)
+int bionic_readdir_r(DIR *dirp, struct bionic_dirent *entry, struct bionic_dirent **result)
 {
-   assert(dirp && entry && result);
-   struct dirent de, *der = NULL;
+	assert(dirp && entry && result);
+	struct dirent de, *der = NULL;
 
-   int ret;
-   if ((ret = readdir_r(dirp, &de, &der)) != 0 || !der) {
-      *result = NULL;
-      return ret;
-   }
+	int ret;
+	if ((ret = readdir_r(dirp, &de, &der)) != 0 || !der) {
+		*result = NULL;
+		return ret;
+	}
 
-   glibc_dirent_to_bionic_dirent(der, entry);
-   *result = entry;
-   return 0;
+	glibc_dirent_to_bionic_dirent(der, entry);
+	*result = entry;
+	return 0;
 }
 #pragma GCC diagnostic pop
 
 // Need to wrap bunch of signal crap
 // https://android.googlesource.com/platform/bionic/+/master/docs/32-bit-abi.md
 
-int
-bionic_sigaddset(const bionic_sigset_t *set, int sig)
+int bionic_sigaddset(const bionic_sigset_t *set, int sig)
 {
-   int bit = sig - 1; // Signal numbers start at 1, but bit positions start at 0.
-   unsigned long *local_set = (unsigned long*)set;
-   if (!set || bit < 0 || bit >= (int)(8 * sizeof(*set))) {
-      errno = EINVAL;
-      return -1;
-   }
-   local_set[bit / LONG_BIT] |= 1UL << (bit % LONG_BIT);
-   return 0;
+	int bit = sig - 1; // Signal numbers start at 1, but bit positions start at 0.
+	unsigned long *local_set = (unsigned long *)set;
+	if (!set || bit < 0 || bit >= (int)(8 * sizeof(*set))) {
+		errno = EINVAL;
+		return -1;
+	}
+	local_set[bit / LONG_BIT] |= 1UL << (bit % LONG_BIT);
+	return 0;
 }
 
-int
-bionic_sigismember(const bionic_sigset_t *set, int sig)
+int bionic_sigismember(const bionic_sigset_t *set, int sig)
 {
-   int bit = sig - 1; // Signal numbers start at 1, but bit positions start at 0.
-   const unsigned long *local_set = (const unsigned long*)set;
-   if (!set || bit < 0 || bit >= (int)(8 * sizeof(*set))) {
-      errno = EINVAL;
-      return -1;
-   }
-   return (int)((local_set[bit / LONG_BIT] >> (bit % LONG_BIT)) & 1);
+	int bit = sig - 1; // Signal numbers start at 1, but bit positions start at 0.
+	const unsigned long *local_set = (const unsigned long *)set;
+	if (!set || bit < 0 || bit >= (int)(8 * sizeof(*set))) {
+		errno = EINVAL;
+		return -1;
+	}
+	return (int)((local_set[bit / LONG_BIT] >> (bit % LONG_BIT)) & 1);
 }
 
-int
-bionic_sigaction(int sig, const struct bionic_sigaction *restrict act, struct bionic_sigaction *restrict oact)
+int bionic_sigaction(int sig, const struct bionic_sigaction *restrict act, struct bionic_sigaction *restrict oact)
 {
-   verbose("%d, %p, %p", sig, (void*)act, (void*)oact);
+	verbose("%d, %p, %p", sig, (void *)act, (void *)oact);
 
-   // THREAD_SIGNAL on android used by libbacktrace
-   if (sig == 33)
-      sig = SIGRTMIN;
+	// THREAD_SIGNAL on android used by libbacktrace
+	if (sig == 33)
+		sig = SIGRTMIN;
 
-   struct sigaction goact = {0}, gact = {0};
-   if (act) {
-      gact.sa_handler = act->bsa_handler;
-      gact.sa_flags = act->sa_flags;
-      gact.sa_restorer = act->sa_restorer;
+	struct sigaction goact = {0}, gact = {0};
+	if (act) {
+		gact.sa_handler = act->bsa_handler;
+		gact.sa_flags = act->sa_flags;
+		gact.sa_restorer = act->sa_restorer;
 
-      // delete reserved signals
-      // 32 (__SIGRTMIN + 0)        POSIX timers
-      // 33 (__SIGRTMIN + 1)        libbacktrace
-      // 34 (__SIGRTMIN + 2)        libcore
-      // 35 (__SIGRTMIN + 3)        debuggerd -b
-      assert(35 < SIGRTMAX);
-      for (int signo = 35; signo < SIGRTMAX; ++signo) {
-         if (bionic_sigismember(&act->sa_mask, signo))
-            sigaddset(&gact.sa_mask, signo);
-      }
-   }
+		// delete reserved signals
+		// 32 (__SIGRTMIN + 0)        POSIX timers
+		// 33 (__SIGRTMIN + 1)        libbacktrace
+		// 34 (__SIGRTMIN + 2)        libcore
+		// 35 (__SIGRTMIN + 3)        debuggerd -b
+		assert(35 < SIGRTMAX);
+		for (int signo = 35; signo < SIGRTMAX; ++signo) {
+			if (bionic_sigismember(&act->sa_mask, signo))
+				sigaddset(&gact.sa_mask, signo);
+		}
+	}
 
-   const int ret = sigaction(sig, (act ? &gact : NULL), (oact ? &goact : NULL));
+	const int ret = sigaction(sig, (act ? &gact : NULL), (oact ? &goact : NULL));
 
-   if (oact) {
-      *oact = (struct bionic_sigaction){0};
-      oact->bsa_handler = goact.sa_handler;
-      oact->sa_flags = goact.sa_flags;
-      oact->sa_restorer = goact.sa_restorer;
+	if (oact) {
+		*oact = (struct bionic_sigaction){0};
+		oact->bsa_handler = goact.sa_handler;
+		oact->sa_flags = goact.sa_flags;
+		oact->sa_restorer = goact.sa_restorer;
 
-      for (int signo = SIGRTMIN + 3; signo < SIGRTMAX; ++signo) {
-         if (sigismember(&goact.sa_mask, signo))
-            bionic_sigaddset(&oact->sa_mask, signo);
-      }
-   }
+		for (int signo = SIGRTMIN + 3; signo < SIGRTMAX; ++signo) {
+			if (sigismember(&goact.sa_mask, signo))
+				bionic_sigaddset(&oact->sa_mask, signo);
+		}
+	}
 
-   return ret;
+	return ret;
 }
 
-int
-bionic___isfinitef(float f)
+int bionic___isfinitef(float f)
 {
-   return isfinite(f);
+	return isfinite(f);
 }
 
-int
-bionic___isfinite(float f)
+int bionic___isfinite(float f)
 {
-   return isfinite(f);
+	return isfinite(f);
 }
 
-void
-bionic___assert2(const char* file, int line, const char* function, const char* failed_expression)
+void bionic___assert2(const char *file, int line, const char *function, const char *failed_expression)
 {
-   fprintf(stderr, "%s:%d: %s: assertion \"%s\" failed\n", file, line, function, failed_expression);
-   abort();
+	fprintf(stderr, "%s:%d: %s: assertion \"%s\" failed\n", file, line, function, failed_expression);
+	abort();
 }
 
 uintptr_t bionic___stack_chk_guard = 4;
@@ -303,98 +288,98 @@ uintptr_t bionic___stack_chk_guard = 4;
 __attribute__((noreturn)) void
 bionic___stack_chk_fail(void)
 {
-   abort();
+	abort();
 }
 
 size_t
 bionic___strlen_chk(const char *s, size_t s_len)
 {
-   const size_t ret = strlen(s);
-   if (__builtin_expect(ret >= s_len, 0)) {
-      fprintf(stderr, "*** strlen read overflow detected ***\n");
-      abort();
-   }
-   return ret;
+	const size_t ret = strlen(s);
+	if (__builtin_expect(ret >= s_len, 0)) {
+		fprintf(stderr, "*** strlen read overflow detected ***\n");
+		abort();
+	}
+	return ret;
 }
 
 #include "libc-sysconf.h"
 
-long
-bionic_sysconf(int name)
+long bionic_sysconf(int name)
 {
-   verbose("0x%x", name);
-   return sysconf(bionic_sysconf_to_glibc_sysconf(name));
+	verbose("0x%x", name);
+	return sysconf(bionic_sysconf_to_glibc_sysconf(name));
 }
 
 static void
 __libc_fini(int signal, void *array)
 {
-   void** fini_array = (void**)array;
+	void **fini_array = (void **)array;
 
-   if (!array || (size_t)fini_array[0] != (size_t)~0)
-      return;
+	if (!array || (size_t)fini_array[0] != (size_t)~0)
+		return;
 
-   fini_array += 1;
+	fini_array += 1;
 
-   int count;
-   for (count = 0; fini_array[count]; ++count);
+	int count;
+	for (count = 0; fini_array[count]; ++count)
+		;
 
-   for (; count > 0; --count) {
-      const union {
-         void *ptr;
-         void (*fun)(void);
-      } fini = { .ptr = fini_array[count] };
+	for (; count > 0; --count) {
+		const union {
+			void *ptr;
+			void (*fun)(void);
+		} fini = {.ptr = fini_array[count]};
 
-      if ((size_t)fini.ptr != (size_t)~0)
-         fini.fun();
-   }
+		if ((size_t)fini.ptr != (size_t)~0)
+			fini.fun();
+	}
 }
 
 struct bionic_structors {
-   void (**preinit_array)(void);
-   void (**init_array)(void);
-   void (**fini_array)(void);
+	void (**preinit_array)(void);
+	void (**init_array)(void);
+	void (**fini_array)(void);
 };
-
 
 static const struct bionic_structors *__structors;
 static void __atexit_libc_fini() { __libc_fini(0, __structors->fini_array); }
 
 __attribute__((noreturn)) void
-bionic___libc_init(void *raw_args, void (*onexit)(void), int (*slingshot)(int, char**, char**), struct bionic_structors const *const structors)
+bionic___libc_init(void *raw_args, void (*onexit)(void), int (*slingshot)(int, char **, char **), struct bionic_structors const *const structors)
 {
-   // linker has already called the constructors
+	// linker has already called the constructors
 
-   union {
-      struct s {
-         uintptr_t argc;
-         char **argv;
-      } s;
-      char bytes[sizeof(struct s)];
-   } arg;
+	union {
+		struct s {
+			uintptr_t argc;
+			char **argv;
+		} s;
+		char bytes[sizeof(struct s)];
+	} arg;
 
-   memcpy(arg.bytes, raw_args, sizeof(arg.bytes));
+	memcpy(arg.bytes, raw_args, sizeof(arg.bytes));
 
-   __structors = structors;
-   if (structors->fini_array && atexit(__atexit_libc_fini)) {
-      fprintf(stderr, "__cxa_atexit failed\n");
-      abort();
-   }
+	__structors = structors;
+	if (structors->fini_array && atexit(__atexit_libc_fini)) {
+		fprintf(stderr, "__cxa_atexit failed\n");
+		abort();
+	}
 
-   exit(slingshot(arg.s.argc, arg.s.argv, arg.s.argv + arg.s.argc + 1));
+	exit(slingshot(arg.s.argc, arg.s.argv, arg.s.argv + arg.s.argc + 1));
 }
 
-#ifndef __LP64__  // bionic uses 32 bit time_t on 32 bit systems
+#ifndef __LP64__ // bionic uses 32 bit time_t on 32 bit systems
 #include <time.h>
 
 struct bionic_timespec {
-  /** Number of seconds. */
-  long tv_sec;
-  /** Number of nanoseconds. Must be less than 1,000,000,000. */
-  long tv_nsec;
+	/** Number of seconds. */
+	long tv_sec;
+	/** Number of nanoseconds. Must be less than 1,000,000,000. */
+	long tv_nsec;
 };
 
-int bionic_clock_gettime(clockid_t clockid, struct bionic_timespec *bionic_tp) {
+int bionic_clock_gettime(clockid_t clockid, struct bionic_timespec *bionic_tp)
+{
 	struct timespec tp;
 	int ret = clock_gettime(clockid, &tp);
 	bionic_tp->tv_sec = tp.tv_sec;
@@ -404,5 +389,5 @@ int bionic_clock_gettime(clockid_t clockid, struct bionic_timespec *bionic_tp) {
 #endif
 
 #ifdef VERBOSE_FUNCTIONS
-#  include "libc-verbose.h"
+#include "libc-verbose.h"
 #endif
