@@ -1351,6 +1351,10 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
 		name = "libandroid.so.0";
 	else if (!strcmp(name, "libOpenSLES.so"))
 		name = "libOpenSLES.so.1";
+	// this is actually shipped with the app, but we want to load the system version
+	// so this works out nicely
+	else if (!strcmp(name, "libopenxr_loader.so"))
+		name = "libopenxr_loader.so.1";
 
 	bname = strrchr(name, '/');
 	bname = bname ? bname + 1 : name;
