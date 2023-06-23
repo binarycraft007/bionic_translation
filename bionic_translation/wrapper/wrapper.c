@@ -1,4 +1,5 @@
 #include "wrapper.h"
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -11,133 +12,79 @@
 #include "verbose.h"
 #include <pthread.h>
 
-static __thread bool skip_trace;
+#define ANDROID_LOG_VERBOSE 2
 
-void
-verbose_log(const char *fmt, ...)
+/* TODO: this file used to host a tracing mechanism. if this is ever desired,
+ * feel free to reimplement it using the copyable functions */
+
+typedef int __android_log_vprint_type(int prio, const char *tag, const char *fmt, va_list ap);
+
+static int fallback_verbose_log(int prio, const char *tag, const char *fmt, va_list ap)
 {
-   if (skip_trace)
-      return;
+	int ret;
 
-   static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-   pthread_mutex_lock(&mutex);
-   va_list ap;
-   va_start(ap, fmt);
-   static char buf[1024];
-   vsnprintf(buf, sizeof(buf), fmt, ap);
-   va_end(ap);
-   fprintf(stderr, "%lu: %s\n", pthread_self(), buf);
-   pthread_mutex_unlock(&mutex);
+	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+	pthread_mutex_lock(&mutex);
+	static char buf[1024];
+	ret = vsnprintf(buf, sizeof(buf), fmt, ap);
+	fprintf(stderr, "%lu: %s\n", pthread_self(), buf);
+	pthread_mutex_unlock(&mutex);
+
+	return ret;
 }
 
-#ifdef VERBOSE_FUNCTIONS
-#  if defined(__i386__)
-__asm__(
-   "wrapper_start: nop\n"
-   "wrapper_store: push %edi\npush %esp\npush %ebp\npush %ebx\npush %eax\npush %ecx\npush %edx\n"
-   "wrapper_symbol: pushl $0xFAFBFCFD\n" // arg1 for trace
-   "wrapper_trace: .byte 0xE8, 0xFA, 0xFB, 0xFC, 0xFD\n" // CALL (trace)
-   "wrapper_restore: pop %eax\npop %edx\npop %ecx\npop %eax\npop %ebx\npop %ebp\npop %esp\npop %edi\n"
-   "wrapper_jmp: .byte 0xE9, 0xFA, 0xFB, 0xFC, 0xFD\n" // JMP
-   "wrapper_ud: .byte 0x0F, 0xFF\n" // UD
-   "wrapper_end: nop\n"
-);
-#     define WRAPPER_TRACE
-#  else
-#     warning "no wrapper asm for this platform, function tracing is not available"
-#  endif
-#endif
-
-#ifdef WRAPPER_TRACE
-extern unsigned char wrapper_start, wrapper_symbol, wrapper_trace, wrapper_restore, wrapper_jmp, wrapper_ud, wrapper_end;
-
-static union {
-   void *ptr;
-   char* (*fun)(const char *mangled_name, char *output_buffer, size_t *length, int *status);
-} __cxa_demangle;
-
-static void
-trace(const char *const symbol)
+static int android_log_vprintf(int prio, const char *tag, const char *fmt, va_list ap)
 {
-   assert(symbol);
 
-   if (__cxa_demangle.ptr) {
-      // >If output_buffer is not long enough, it is expanded using realloc
-      // Holy fuck gcc what the fuck? Guess we don't use stack then, thanks
-      int status;
-      char *demangled;
-      static __thread char *data;
-      static __thread size_t size;
+	static __android_log_vprint_type *_android_log_vprintf = NULL;
+	if(!_android_log_vprintf) {
+		_android_log_vprintf = dlsym(RTLD_DEFAULT, "__android_log_vprint");
 
-      // Avoid infinite recursion and tracing calls made by __cxa_demangle.fun
-      if (skip_trace)
-         return;
+		if(!_android_log_vprintf) {
+			_android_log_vprintf = &fallback_verbose_log;
+		}
+	}
 
-      skip_trace = true;
-      demangled = __cxa_demangle.fun(symbol, data, &size, &status);
-      skip_trace = false;
-
-      if (demangled) {
-         data = (data != demangled ? demangled : data);
-         verbose("trace: %s", demangled);
-         return;
-      }
-   }
-
-   verbose("trace: %s", symbol);
-}
-#endif
-
-void
-wrapper_set_cpp_demangler(void *function)
-{
-#ifdef WRAPPER_TRACE
-   __cxa_demangle.ptr = function;
-   verbose_log("wrapper: set cpp_demangler to %p", function);
-#endif
+	return _android_log_vprintf(prio, tag, fmt, ap);
 }
 
-void*
-wrapper_create(const char *const symbol, void *function)
+int android_log_printf(int prio, const char *tag, const char *fmt, ...)
 {
-   assert(symbol);
+	int ret;
 
-   if (!function) {
-      verbose_log("FIXME: unimplemented symbol: %s", symbol);
-      return NULL;
-   }
+	va_list ap;
+	va_start(ap, fmt);
 
-#ifdef WRAPPER_TRACE
-   static const union {
-      void *ptr;
-      void (*fun)(const char*);
-   } tracefun = { .fun = trace };
+	ret = android_log_vprintf(prio, tag, fmt, ap);
 
-   const size_t len = strlen(symbol) + 1;
-   char *copy = malloc(len);
-   assert(copy && "welp, malloc failed");
-   memcpy(copy, symbol, len);
-   const size_t sz = &wrapper_end - &wrapper_start;
-   unsigned char *fun = mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-   assert(fun != MAP_FAILED);
-   memcpy(fun, &wrapper_start, sz);
-#ifdef __i386__
-   memcpy(fun + (&wrapper_symbol - &wrapper_start) + 1, &copy, sizeof(copy));
-   {
-      const unsigned char *from = fun + (&wrapper_restore - &wrapper_start);
-      const intptr_t to = (unsigned char*)tracefun.ptr - from;
-      memcpy(fun + (&wrapper_trace - &wrapper_start) + 1, &to, sizeof(to));
-   }{
-      const unsigned char *from = fun + (&wrapper_ud - &wrapper_start);
-      const intptr_t to = (unsigned char*)function - from;
-      memcpy(fun + (&wrapper_jmp - &wrapper_start) + 1, &to, sizeof(to));
-   }
-#else
-#   error "you forgot to implement the pointer setups for your asm platform"
-#endif
-   mprotect(fun, sz, PROT_READ | PROT_EXEC);
-   return fun;
-#else
-   return function;
-#endif
+	va_end(ap);
+
+	return ret;
+}
+
+void verbose_log(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+
+	android_log_vprintf(ANDROID_LOG_VERBOSE, "[bionic_translation]", fmt, ap);
+
+	va_end(ap);
+}
+
+void wrapper_set_cpp_demangler(void *function)
+{
+
+}
+
+void * wrapper_create(const char *const symbol, void *function)
+{
+	assert(symbol);
+
+	if (!function) {
+		verbose_log("FIXME: unimplemented symbol: %s", symbol);
+		return NULL;
+	}
+
+	return function;
 }

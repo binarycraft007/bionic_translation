@@ -38,7 +38,7 @@
 /* set LINKER_DEBUG_TO_LOG to 1 to send the logs to logcat,
  * or 0 to use stdout instead.
  */
-#define LINKER_DEBUG_TO_LOG 0
+#define LINKER_DEBUG_TO_LOG 1
 #define TRACE_DEBUG	    1
 #define DO_TRACE_LOOKUP	    1
 #define DO_TRACE_RELO	    1
@@ -66,35 +66,32 @@
 #include "linker_format.h"
 extern int apkenv_debug_verbosity;
 #if LINKER_DEBUG_TO_LOG
-extern int apkenv_format_log(int, const char *, const char *, ...);
-#define _PRINTVF(v, f, x...)                                     \
-	do {                                                     \
-		if (apkenv_debug_verbosity > (v))                \
-			apkenv_format_log(5 - (v), "linker", x); \
-	} while (0)
+extern int android_log_printf(int, const char *, const char *, ...);
+#define _PRINTVF(v, x...)					 \
+		android_log_printf(5 - (v), "[bionic_linker]", x);
 #else /* !LINKER_DEBUG_TO_LOG */
-#define _PRINTVF(v, f, x...)                      \
+#define _PRINTVF(v, x...)                      \
 	do {                                      \
 		if (apkenv_debug_verbosity > (v)) \
 			fprintf(stderr, x);       \
 	} while (0)
 #endif /* !LINKER_DEBUG_TO_LOG */
 #else  /* !LINKER_DEBUG */
-#define _PRINTVF(v, f, x...) \
+#define _PRINTVF(v, x...) \
 	do {                 \
 	} while (0)
 #endif /* LINKER_DEBUG */
 
-#define PRINT(x...) printf("PRINT: " x)
-#define INFO(x...)  printf("INFO: " x)
-#define TRACE(x...) printf("TRACE: " x)
+#define PRINT(x...) _PRINTVF(3, x)
+#define INFO(x...)  _PRINTVF(3, x)
+#define TRACE(x...) _PRINTVF(3, x)
 #define WARN(fmt, args...) \
 	printf("%s:%d| WARNING: " fmt, __FILE__, __LINE__, ##args)
 #define ERROR(fmt, args...) \
 	printf("%s:%d| ERROR: " fmt, __FILE__, __LINE__, ##args)
 
 #if TRACE_DEBUG
-#define DEBUG(x...) printf("DEBUG: " x)
+#define DEBUG(x...) _PRINTVF(2, x)
 #else /* !TRACE_DEBUG */
 #define DEBUG(x...) \
 	do {        \

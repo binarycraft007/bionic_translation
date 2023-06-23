@@ -30,11 +30,6 @@
 
 #include "dlfcn.h"
 
-#ifdef APKENV_DEBUG
-#define LINKER_DEBUG_PRINTF(...) PRINT(__VA_ARGS__)
-#else
-#define LINKER_DEBUG_PRINTF(...)
-#endif
 /* This file hijacks the symbols stubbed out in libdl.so. */
 
 #define DL_SUCCESS		      0
@@ -102,7 +97,7 @@ enum {
 
 void *bionic_dlsym(void *handle, const char *symbol)
 {
-	printf("bionic_dlsym(%p, %s) called\n", handle, symbol);
+	verbose("bionic_dlsym(%p, %s) called\n", handle, symbol);
 
 	soinfo *found;
 	ElfW(Sym) *sym;
@@ -180,7 +175,7 @@ void *bionic_dlsym(void *handle, const char *symbol)
 		set_dlerror(DL_ERR_SYMBOL_NOT_FOUND);
 
 err:
-	LINKER_DEBUG_PRINTF("symbol %s has not been hooked\n", symbol);
+	verbose("symbol %s has not been hooked\n", symbol);
 	pthread_mutex_unlock(&apkenv_dl_lock);
 	return 0;
 }
