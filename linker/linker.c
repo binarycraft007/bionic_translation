@@ -1338,7 +1338,13 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
 		return NULL;
 #endif
 
-	// TODO: *in theory* the library could have /system/lib/{name} in DT_NEEDED
+	// some libraries have `/system/lib/{name}` in DT_NEEDED, just strip the prefix
+	const char *prefix = "/system/lib/";
+	const int prefix_len = strlen(prefix);
+
+	if(!strncmp(name, prefix, prefix_len))
+		name += prefix_len;
+
 	// libc_bio.so pulls in libptread_bio.so (pthreads are in libc.so on android)
 	if (!strcmp(name, "libc.so"))
 		name = "libc_bio.so.0";
