@@ -6,3 +6,13 @@ same with `bionic_translation/libc/`
 `bionic_translation/wrapper/` is a helper for these, also from android2gnulinux  
 `bionic_translation/libstdc++_standalone` is taken from bionic sources and coerced to compile; it's just "a minimum implementation of libc++ functionality not provided by compiler",
 and things break when it's not linked in and android libs try to call into it and instead end up in the glibc or llvm libc++ implementations  
+
+### note on debugging with gdb
+
+At least with glibc, the following completely fixes issues with shared library load notifications:
+```
+objcopy -R .note.stapsdt /usr/lib64/ld-linux-x86-64.so.2 ld-linux-x86-64.so.2-nostap
+gdb --args ./ld-linux-x86-64.so.2-nostap debugged-executable
+```
+This ensures that gdb is unable to use the stap-probe-based system for communication with
+the system linker, and will fall back to using the r_debug mechanism.
