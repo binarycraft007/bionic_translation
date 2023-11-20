@@ -1473,8 +1473,8 @@ unsigned int apkenv_unload_library(soinfo *si)
 #define COPYABLE_FUNC(func_name)                                                                                                                                                            \
 	extern const char __start_##func_name##_section;                                                                                                                                    \
 	extern const char __stop_##func_name##_section;                                                                                                                                     \
-	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name "_section"))) __attribute__((__used__)) __attribute__((aligned(PAGE_SIZE))) = NULL; \
-	void __attribute__((no_reorder)) __attribute__((section(#func_name "_section;#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) __attribute__((no_stack_protector)) func_name(void)
+	static void *func_name##_adj_data __attribute__((no_reorder)) __attribute__((section(#func_name "_section,\"a\";##"))) __attribute__((__used__)) __attribute__((aligned(PAGE_SIZE))) = NULL; \
+	void __attribute__((no_reorder)) __attribute__((section(#func_name "_section,\"a\";#"))) __attribute__((__used__)) __attribute__((optimize("O0"))) __attribute__((no_stack_protector)) func_name(void)
 
 void *alloc_executable_memory(size_t size)
 {
