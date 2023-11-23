@@ -2197,6 +2197,45 @@ static int apkenv_reloc_library(soinfo *si, ElfW(Rel) * rel, size_t count)
 }
 #endif
 
+void apkenv_apply_relr_reloc(soinfo *si, ElfW(Addr) offset) {
+	ElfW(Addr) address = offset + si->base;
+	*((ElfW(Addr)*)address) += si->base;
+}
+
+static bool apkenv_relocate_relr(soinfo *si) {
+	ElfW(Relr)* begin = si->relr_;
+	ElfW(Relr)* end = si->relr_ + si->relr_count_;
+
+	const size_t wordsize = sizeof(ElfW(Addr));
+
+	ElfW(Addr) base = 0;
+	for (ElfW(Relr)* current = begin; current < end; ++current) {
+		ElfW(Relr) entry = *current;
+		ElfW(Addr) offset;
+		if ((entry&1) == 0) {
+			// Even entry: encodes the offset for next relocation.
+			offset = (ElfW(Addr))entry;
+			apkenv_apply_relr_reloc(si, offset);
+			// Set base offset for subsequent bitmap entries.
+			base = offset + wordsize;
+			continue;
+		}
+		// Odd entry: encodes bitmap for relocations starting at base.
+		offset = base;
+		while (entry != 0) {
+			entry >>= 1;
+			if ((entry&1) != 0) {
+				apkenv_apply_relr_reloc(si, offset);
+			}
+			offset += wordsize;
+		}
+		// Advance base offset by 63 words for 64-bit platforms,
+		// or 31 words for 32-bit platforms.
+		base += (8*wordsize - 1) * wordsize;
+	}
+	return true;
+}
+
 /* Please read the "Initialization and Termination functions" functions.
  * of the linker design note in bionic/linker/README.TXT to understand
  * what the following code is doing.
@@ -2621,6 +2660,14 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
 			DL_ERR("unsupported DT_RELA in \"%s\"", si->name);
 			return false;
 #endif
+		case DT_RELR:
+		case DT_ANDROID_RELR:
+			si->relr_ = (ElfW(Relr) *)(si->base + d->d_un.d_ptr);
+			break;
+		case DT_RELRSZ:
+		case DT_ANDROID_RELRSZ:
+			si->relr_count_ = d->d_un.d_val / sizeof(ElfW(Relr));
+			break;
 		case DT_INIT:
 			si->init_func = (void (*)(void))(si->base + d->d_un.d_ptr);
 			DEBUG("%5d %s constructors (init func) found at %p\n",
@@ -2753,6 +2800,12 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
 			goto fail;
 	}
 #endif
+
+	if (si->relr_) {
+		DEBUG("[ %5d relocating %s relr ]\n", apkenv_pid, si->name);
+		if (!apkenv_relocate_relr(si))
+			goto fail;
+	}
 
 	apkenv_create_latehook_wrappers(si);
 

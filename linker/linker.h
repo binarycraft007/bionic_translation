@@ -90,6 +90,20 @@ struct r_debug
 };
 #endif
 
+
+/*
+ * Experimental support for SHT_RELR sections. For details, see proposal
+ * at https://groups.google.com/forum/#!topic/generic-abi/bX460iggiKg.
+ * This was eventually replaced by SHT_RELR and DT_RELR (which are identical
+ * other than their different constants), but those constants are only
+ * supported by the OS starting at API level 30.
+ */
+#define SHT_ANDROID_RELR 0x6fffff00
+#define DT_ANDROID_RELR 0x6fffe000
+#define DT_ANDROID_RELRSZ 0x6fffe001
+#define DT_ANDROID_RELRENT 0x6fffe003
+#define DT_ANDROID_RELRCOUNT 0x6fffe005
+
 typedef struct soinfo soinfo;
 
 #define FLAG_LINKED	0x00000001
@@ -138,6 +152,10 @@ struct soinfo {
 	ElfW(Rel) *rel;
 	size_t rel_count;
 #endif
+
+	// version >= 4
+	ElfW(Relr)* relr_;
+	size_t relr_count_;
 
 	intptr_t *preinit_array;
 	size_t preinit_array_count;
