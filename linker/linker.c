@@ -49,6 +49,7 @@
 #include <pthread.h>
 
 #include <sys/mman.h>
+#include <sys/param.h>
 
 #include <libgen.h>
 
@@ -420,54 +421,122 @@ int bionic_dl_iterate_phdr(int (*cb)(struct dl_phdr_info *info, size_t size, voi
 }
 #endif
 
-static ElfW(Sym) * apkenv__elf_lookup(soinfo *si, uint32_t hash, const char *name)
+static inline bool is_gnu_hash(soinfo *si)
 {
-	ElfW(Sym) * s;
-	ElfW(Sym) *symtab = si->symtab;
-	const char *strtab = si->strtab;
-	unsigned int n;
+	return (si->flags & FLAG_GNU_HASH);
+}
 
-	TRACE_TYPE(LOOKUP, "%5d SEARCH %s in %s@0x%016lx %08x %lu\n", apkenv_pid,
-		   name, si->name, si->base, hash, hash % (si->nbucket ? si->nbucket : 1));
-	if (si->nbucket == 0) {
-		return NULL;
+static uint32_t apkenv_sysvhash(struct symbol_name *symbol_name)
+{
+	if(!symbol_name->has_sysv_hash) {
+		const unsigned char *name = (const unsigned char *)symbol_name->name;
+		uint32_t h = 0, g;
+
+		while (*name) {
+			h = (h << 4) + *name++;
+			g = h & 0xf0000000;
+			h ^= g;
+			h ^= g >> 24;
+		}
+
+		symbol_name->sysv_hash = h;
 	}
-	n = hash % si->nbucket;
 
-	for (n = si->bucket[hash % si->nbucket]; n != 0; n = si->chain[n]) {
-		s = symtab + n;
-		if (strcmp(strtab + s->st_name, name))
-			continue;
+	return symbol_name->sysv_hash;
+}
 
-		/* only concern ourselves with global and weak symbol definitions */
-		switch (ELF_ST_BIND(s->st_info)) {
-		case STB_GLOBAL:
-		case STB_WEAK:
-			/* no section == undefined */
-			if (s->st_shndx == 0)
-				continue;
+static uint32_t apkenv_gnuhash(struct symbol_name *symbol_name)
+{
+	if(!symbol_name->has_gnu_hash) {
+		uint32_t h = 5381;
+		const unsigned char* name = (const unsigned char *)(symbol_name->name);
+		while (*name != 0) {
+			h += (h << 5) + *name++; // h*33 + c = h + h * 32 + c = h + h << 5 + c
+		}
 
-			TRACE_TYPE(LOOKUP, "%5d FOUND %s in %s (%016lx) %lu\n", apkenv_pid,
-				   name, si->name, s->st_value, s->st_size);
+		symbol_name->gnu_hash = h;
+	}
+
+	return symbol_name->gnu_hash;
+}
+
+static bool is_symbol_global_and_defined(const soinfo *si, const ElfW(Sym) *s) {
+	/* only concern ourselves with global and weak symbol definitions */
+	if (ELF_ST_BIND(s->st_info) == STB_GLOBAL ||
+	    ELF_ST_BIND(s->st_info) == STB_WEAK) {
+		return s->st_shndx != SHN_UNDEF;
+	} else if (ELF_ST_BIND(s->st_info) != STB_LOCAL) {
+		WARN("unexpected ST_BIND value: %d for '%s' in '%s'",
+		     ELF_ST_BIND(s->st_info), si->strtab + s->st_name, si->name);
+	}
+
+	return false;
+}
+
+static ElfW(Sym) * apkenv__elf_lookup_sysv(soinfo *si, struct symbol_name *symbol_name)
+{
+	const char *name = symbol_name->name;
+	uint32_t hash = apkenv_sysvhash(symbol_name);
+
+	TRACE_TYPE(LOOKUP, "SEARCH %s in %s@%p h=%x(elf) %zd",
+	           name, si->name, (void *)si->base, hash, hash % si->nbucket);
+
+	for (uint32_t n = si->bucket[hash % si->nbucket]; n != 0; n = si->chain[n]) {
+		ElfW(Sym) *s = si->symtab + n;
+		if (!strcmp(si->strtab + s->st_name, name) && is_symbol_global_and_defined(si, s)) {
+			TRACE_TYPE(LOOKUP, "FOUND %s in %s (%p) %zd",
+			           name, si->name, (void *)(s->st_value), (size_t)(s->st_size));
 			return s;
 		}
 	}
 
+	TRACE_TYPE(LOOKUP, "NOT FOUND %s in %s@%p h=%x(elf) %zd",
+	           symbol_name->name, si->name, (void *)si->base, hash, hash % si->nbucket);
+
 	return NULL;
 }
 
-static uint32_t apkenv_elfhash(const char *_name)
+static ElfW(Sym) * apkenv__elf_lookup_gnu(soinfo *si, struct symbol_name *symbol_name)
 {
-	const unsigned char *name = (const unsigned char *)_name;
-	uint32_t h = 0, g;
+	const char *name = symbol_name->name;
+	uint32_t hash = apkenv_gnuhash(symbol_name);
+	uint32_t h2 = hash >> si->gnu_shift2;
+	uint32_t bloom_mask_bits = sizeof(ElfW(Addr))*8;
+	uint32_t word_num = (hash / bloom_mask_bits) & si->gnu_maskwords;
+	ElfW(Addr) bloom_word = si->gnu_bloom_filter[word_num];
 
-	while (*name) {
-		h = (h << 4) + *name++;
-		g = h & 0xf0000000;
-		h ^= g;
-		h ^= g >> 24;
-	}
-	return h;
+	TRACE_TYPE(LOOKUP, "SEARCH %s in %s@%p h=%x(gnu) %zd",
+	           name, si->name, (void *)si->base, hash, hash % si->nbucket);
+
+	// test against bloom filter
+	if ((1 & (bloom_word >> (hash % bloom_mask_bits)) & (bloom_word >> (h2 % bloom_mask_bits))) == 0)
+		return NULL;
+
+	// bloom test says "probably yes"...
+	uint32_t n = si->bucket[hash % si->nbucket];
+	if (n == 0)
+		return NULL;
+
+	do {
+		ElfW(Sym)* s = si->symtab + n;
+		if (((si->chain[n] ^ hash) >> 1) == 0 &&
+		    strcmp(si->strtab + s->st_name, name) == 0 &&
+		    is_symbol_global_and_defined(si, s)) {
+			TRACE_TYPE(LOOKUP, "FOUND %s in %s (%p) %zd",
+			           name, si->name, (void *)(s->st_value), (size_t)(s->st_size));
+			return s;
+		}
+	} while ((si->chain[n++] & 1) == 0);
+
+	TRACE_TYPE(LOOKUP, "NOT FOUND %s in %s@%p h=%x(gnu) %zd",
+	           symbol_name->name, si->name, (void *)si->base, hash, hash % si->nbucket);
+
+	return NULL;
+}
+
+static ElfW(Sym) * apkenv__elf_lookup(soinfo *si, struct symbol_name *symbol_name)
+{
+	return is_gnu_hash(si) ? apkenv__elf_lookup_gnu(si, symbol_name) : apkenv__elf_lookup_sysv(si, symbol_name);
 }
 
 const char *apkenv_last_library_used = NULL;
@@ -475,7 +544,7 @@ const char *apkenv_last_library_used = NULL;
 static ElfW(Sym) *
     apkenv__do_lookup(soinfo *si, const char *name, ElfW(Addr) * base)
 {
-	uint32_t elf_hash = apkenv_elfhash(name);
+	struct symbol_name symbol_name = { .name = name };
 	ElfW(Sym) * s;
 	soinfo *lsi = si;
 	int i;
@@ -490,14 +559,14 @@ static ElfW(Sym) *
 	 * and some the first non-weak definition.   This is system dependent.
 	 * Here we return the first definition found for simplicity.  */
 
-	s = apkenv__elf_lookup(si, elf_hash, name);
+	s = apkenv__elf_lookup(si, &symbol_name);
 	if (s != NULL)
 		goto done;
 
 	/* Next, look for it in the apkenv_preloads list */
 	for (i = 0; apkenv_preloads[i] != NULL; i++) {
 		lsi = apkenv_preloads[i];
-		s = apkenv__elf_lookup(lsi, elf_hash, name);
+		s = apkenv__elf_lookup(lsi, &symbol_name);
 		if (s != NULL)
 			goto done;
 	}
@@ -513,7 +582,7 @@ static ElfW(Sym) *
 
 			DEBUG("%5d %s: looking up %s in %s\n",
 			      apkenv_pid, si->name, name, lsi->name);
-			s = apkenv__elf_lookup(lsi, elf_hash, name);
+			s = apkenv__elf_lookup(lsi, &symbol_name);
 			if ((s != NULL) && (s->st_shndx != SHN_UNDEF))
 				goto done;
 		}
@@ -528,7 +597,7 @@ static ElfW(Sym) *
 		lsi = apkenv_somain;
 		DEBUG("%5d %s: looking up %s in executable %s\n",
 		      apkenv_pid, si->name, name, lsi->name);
-		s = apkenv__elf_lookup(lsi, elf_hash, name);
+		s = apkenv__elf_lookup(lsi, &symbol_name);
 	}
 #endif
 
@@ -550,14 +619,14 @@ done:
  */
 ElfW(Sym) * apkenv_lookup_in_library(soinfo *si, const char *name)
 {
-	return apkenv__elf_lookup(si, apkenv_elfhash(name), name);
+	return apkenv__elf_lookup(si, &(struct symbol_name){ .name = name });
 }
 
 /* This is used by dl_sym().  It performs a global symbol lookup.
  */
 ElfW(Sym) * apkenv_lookup(const char *name, soinfo **found, soinfo *start)
 {
-	uint32_t elf_hash = apkenv_elfhash(name);
+	struct symbol_name symbol_name = { .name = name };
 	ElfW(Sym) *s = NULL;
 	soinfo *si;
 
@@ -568,7 +637,7 @@ ElfW(Sym) * apkenv_lookup(const char *name, soinfo **found, soinfo *start)
 	for (si = start; (s == NULL) && (si != NULL); si = si->next) {
 		if (si->flags & FLAG_ERROR)
 			continue;
-		s = apkenv__elf_lookup(si, elf_hash, name);
+		s = apkenv__elf_lookup(si, &symbol_name);
 		if (s != NULL) {
 			*found = si;
 			break;
@@ -598,24 +667,54 @@ soinfo *apkenv_find_containing_library(const void *addr)
 	return NULL;
 }
 
-ElfW(Sym) * apkenv_find_containing_symbol(const void *addr, soinfo *si)
+static bool symbol_matches_soaddr(const ElfW(Sym)* sym, ElfW(Addr) soaddr) {
+	return sym->st_shndx != SHN_UNDEF &&
+	       soaddr >= sym->st_value &&
+	       soaddr < sym->st_value + sym->st_size;
+}
+
+ElfW(Sym) * apkenv_find_containing_symbol_sysv(const void *addr, soinfo *si)
 {
-	unsigned int i;
-	intptr_t soaddr = (intptr_t)addr - si->base;
+	ElfW(Addr) soaddr = (ElfW(Addr))(addr) - si->base;
 
 	/* Search the library's symbol table for any defined symbol which
 	 * contains this address */
-	for (i = 0; i < si->nchain; i++) {
+	for (size_t i = 0; i < si->nchain; i++) {
 		ElfW(Sym) *sym = &si->symtab[i];
 
-		if (sym->st_shndx != SHN_UNDEF &&
-		    soaddr >= sym->st_value &&
-		    soaddr < sym->st_value + sym->st_size) {
+		if (symbol_matches_soaddr(sym, soaddr)) {
 			return sym;
 		}
 	}
 
 	return NULL;
+}
+
+ElfW(Sym) * apkenv_find_containing_symbol_gnu(const void *addr, soinfo *si)
+{
+	ElfW(Addr) soaddr = (ElfW(Addr))(addr) - si->base;
+
+	for (size_t i = 0; i < si->nbucket; ++i) {
+		uint32_t n = si->bucket[i];
+
+		if (n == 0) {
+			continue;
+		}
+
+		do {
+			ElfW(Sym)* sym = si->symtab + n;
+			if (symbol_matches_soaddr(sym, soaddr)) {
+				return sym;
+			}
+		} while ((si->chain[n++] & 1) == 0);
+	}
+
+	return NULL;
+}
+
+ElfW(Sym) * apkenv_find_containing_symbol(const void *addr, soinfo *si)
+{
+	return is_gnu_hash(si) ? apkenv_find_containing_symbol_gnu(addr, si) : apkenv_find_containing_symbol_sysv(addr, si);
 }
 
 #if 0
@@ -1446,7 +1545,9 @@ unsigned int apkenv_unload_library(soinfo *si)
 	return si->refcount;
 }
 
+#ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
 
 /* --- TODO: move this into wrapper.c and use it to get rid of that file's dependency on magic assembly */
 
@@ -2595,10 +2696,39 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
 		DEBUG("%5d d = %p, d->d_tag = 0x%016lx d->d_un.d_val = 0x%016lx\n", apkenv_pid, d, d->d_tag, d->d_un.d_val);
 		switch (d->d_tag) {
 		case DT_HASH:
+			if (si->nbucket != 0) {
+				// in case of --hash-style=both, we prefer gnu
+				break;
+			}
+
 			si->nbucket = ((uint32_t *)(si->base + d->d_un.d_ptr))[0];
 			si->nchain = ((uint32_t *)(si->base + d->d_un.d_ptr))[1];
 			si->bucket = (uint32_t *)(si->base + d->d_un.d_ptr + 8);
 			si->chain = (uint32_t *)(si->base + d->d_un.d_ptr + 8 + si->nbucket * 4);
+			break;
+		case DT_GNU_HASH:
+			if (si->nbucket != 0) {
+				// in case of --hash-style=both, we prefer gnu
+				si->nchain = 0;
+			}
+
+			si->nbucket = ((uint32_t *)(si->base + d->d_un.d_ptr))[0];
+			// skip symndx
+			si->gnu_maskwords = ((uint32_t *)(si->base + d->d_un.d_ptr))[2];
+			si->gnu_shift2 = ((uint32_t *)(si->base + d->d_un.d_ptr))[3];
+
+			si->gnu_bloom_filter = (ElfW(Addr) *)(si->base + d->d_un.d_ptr + 16);
+			si->bucket = (uint32_t *)(si->gnu_bloom_filter + si->gnu_maskwords);
+			// amend chain for symndx = header[1]
+			si->chain = si->bucket + si->nbucket - ((uint32_t *)(si->base + d->d_un.d_ptr))[1];
+
+			if (!powerof2(si->gnu_maskwords)) {
+				DL_ERR("invalid maskwords for gnu_hash = 0x%x, in \"%s\" expecting power to two", si->gnu_maskwords, si->name);
+				return false;
+			}
+			si->gnu_maskwords--;
+
+			si->flags |= FLAG_GNU_HASH;
 			break;
 		case DT_STRTAB:
 			si->strtab = (const char *)(si->base + d->d_un.d_ptr);

@@ -110,8 +110,17 @@ typedef struct soinfo soinfo;
 #define FLAG_ERROR	0x00000002
 #define FLAG_EXE	0x00000004 // The main executable
 #define FLAG_LINKER	0x00000010 // The linker itself
+#define FLAG_GNU_HASH   0x00000040 // uses gnu hash
 
 #define SOINFO_NAME_LEN 128
+
+struct symbol_name {
+	const char *name;
+	bool has_sysv_hash;
+	bool has_gnu_hash;
+	uint32_t sysv_hash;
+	uint32_t gnu_hash;
+};
 
 struct soinfo {
 	const char name[SOINFO_NAME_LEN];
@@ -152,6 +161,12 @@ struct soinfo {
 	ElfW(Rel) *rel;
 	size_t rel_count;
 #endif
+
+	// version >= 2
+	uint32_t gnu_maskwords;
+	uint32_t gnu_shift2;
+
+	ElfW(Addr)* gnu_bloom_filter;
 
 	// version >= 4
 	ElfW(Relr)* relr_;
