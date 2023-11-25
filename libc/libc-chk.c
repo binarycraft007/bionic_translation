@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 
 size_t bionic___fwrite_chk(const void *__restrict buf, size_t size, size_t count, FILE *__restrict stream, size_t buf_size)
 {
@@ -267,4 +268,18 @@ void *bionic___memset_chk(void *dest, int c, size_t n, size_t dest_len)
 char *bionic___strcpy_chk(char *dest, const char *src, size_t dest_len)
 {
 	return strcpy(dest, src);
+}
+
+ssize_t bionic___write_chk(int fd, const void* buf, size_t count, size_t buf_size) {
+	if (__builtin_expect(count > buf_size, 0)) {
+		fprintf(stderr, "write: prevented read past end of buffer");
+		abort();
+	}
+
+	if (__builtin_expect(count > SSIZE_MAX, 0)) {
+		fprintf(stderr, "write: count > SSIZE_MAX");
+		abort();
+	}
+
+	return write(fd, buf, count);
 }

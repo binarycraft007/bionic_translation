@@ -57,6 +57,7 @@ pthread_bio = shared_library('pthread_bio', [
 shared_library('c_bio', [
                         	'libc/libc.c',
                         	'libc/libc-chk.c',
+                        	'libc/libc-math.c',
                         	'libc/libc-misc.c',
                            	'libc/libc-stdio.c',
                            	'libc/libc-sha1.c',
