@@ -9,10 +9,14 @@ and things break when it's not linked in and android libs try to call into it an
 
 ### note on debugging with gdb
 
-At least with glibc, the following completely fixes issues with shared library load notifications:
+At least with glibc, the following sometimes fixes issues with shared library load notifications:
 ```
 objcopy -R .note.stapsdt /usr/lib64/ld-linux-x86-64.so.2 ld-linux-x86-64.so.2-nostap
 gdb --args ./ld-linux-x86-64.so.2-nostap debugged-executable
 ```
 This ensures that gdb is unable to use the stap-probe-based system for communication with
 the system linker, and will fall back to using the r_debug mechanism.
+
+If this doesn't help, you can also add the libraries manually (once they are loaded), like this:
+`eval "add-symbol-file %s -o apkenv_sopool[0].base", apkenv_sopool[0].fullpath` (repeat for `[1]` etc
+depending on how many libraries have been loaded)
