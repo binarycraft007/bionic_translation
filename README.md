@@ -20,3 +20,15 @@ the system linker, and will fall back to using the r_debug mechanism.
 If this doesn't help, you can also add the libraries manually (once they are loaded), like this:
 `eval "add-symbol-file %s -o apkenv_sopool[0].base", apkenv_sopool[0].fullpath` (repeat for `[1]` etc
 depending on how many libraries have been loaded)
+
+A less annoying option is to automate the manual method:
+```
+b apkenv_insert_soinfo_into_debug_map
+commands
+eval "add-symbol-file %s -o info->base", info->fullpath
+c
+end
+```
+This will break in the function that is trying to notify gdb, and use the information that's passed
+to this function to effectively do what the function should be doing already but for whatever reason
+fails at.
