@@ -25,7 +25,7 @@ struct bionic_dirent {
 	char d_name[256];
 };
 
-#if defined(__i386__)
+#ifndef __LP64__
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
 	union {
@@ -36,7 +36,7 @@ struct bionic_sigaction {
 	int sa_flags;
 	void (*sa_restorer)(void);
 };
-#elif defined(__x86_64__) || defined(__aarch64__) // for 64bit arches, `sa_flags` is in a different place
+#else // for 64bit arches, `sa_flags` is in a different place
 typedef unsigned long bionic_sigset_t;
 struct bionic_sigaction {
 	unsigned int sa_flags;
@@ -47,8 +47,6 @@ struct bionic_sigaction {
 	bionic_sigset_t sa_mask;
 	void (*sa_restorer)(void);
 };
-#else
-#error "bionic_sigaction not implemented for this platform"
 #endif
 
 // Stuff that doesn't exist in glibc
