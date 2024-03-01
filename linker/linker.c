@@ -66,6 +66,7 @@
 
 #include "../wrapper/wrapper.h"
 
+#include "config.h"
 #include "linker.h"
 #include "linker_debug.h"
 #include "linker_environ.h"
@@ -1444,22 +1445,12 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
 	if(!strncmp(name, prefix, prefix_len))
 		name += prefix_len;
 
-	// libc_bio.so pulls in libptread_bio.so (pthreads are in libc.so on android)
-	if (!strcmp(name, "libc.so"))
-		name = "libc_bio.so.0";
-	else if (!strcmp(name, "libstdc++.so"))
-		name = "libstdc++_bio.so.0";
-	// NOTE: it seems weird to hardcode this here when we're not providing these libs,
-	// but the list of libraries for which we need to do this should be finite so it's
-	// not the worst thing ever (TODO: read these overrides from /etc ?)
-	else if (!strcmp(name, "libandroid.so"))
-		name = "libandroid.so.0";
-	else if (!strcmp(name, "libOpenSLES.so"))
-		name = "libOpenSLES.so.1";
-	// this is actually shipped with the app, but we want to load the system version
-	// so this works out nicely
-	else if (!strcmp(name, "libopenxr_loader.so"))
-		name = "libopenxr_loader.so.1";
+	for(int i = 0; i < lib_override_map_len; i++) {
+		if(!strcmp(lib_override_map[i].from, name)) {
+			name = lib_override_map[i].to;
+			break;
+		}
+	}
 
 	bname = strrchr(name, '/');
 	bname = bname ? bname + 1 : name;

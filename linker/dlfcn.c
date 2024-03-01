@@ -21,6 +21,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "config.h"
 #include "linker.h"
 #include "linker_format.h"
 
@@ -332,6 +333,12 @@ __attribute__((constructor)) void construct(void)
 #endif
 	};
 	memcpy(apkenv_libdl_symtab, symtab, sizeof(symtab));
+
+	// the config files contain overrides like libc.so -> libc_bio.so.0
+	read_cfg_dir("/usr/local/share/bionic_translation/cfg.d");
+	read_cfg_dir("/usr/share/bionic_translation/cfg.d");
+	read_cfg_dir("/etc/bionic_translation/cfg.d");
+
 
 	// since it seems to not be particularly trivial to figure out which
 	// libs we should link ourselves and which libs we should leave to glibc,

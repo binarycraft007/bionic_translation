@@ -10,6 +10,7 @@ wrapper = static_library('wrapper', [
                                     ])
 
 shared_library('dl_bio', [
+                         	'linker/config.c',
                          	'linker/dlfcn.c',
                          	'linker/linker.c',
                          	'linker/linker_environ.c',
@@ -84,16 +85,21 @@ shared_library('c_bio', [
                         ])
 
 shared_library('stdc++_bio', [
-                           	'libstdc++_standalone/new.cpp',
+                             	'libstdc++_standalone/new.cpp',
                              	'libstdc++_standalone/__cxa_pure_virtual.cpp',
-                         	'libstdc++_standalone/__cxa_guard.cpp'
-                         ],
-                         soversion: 0, # this tiny library's stable ABI will definitely never change, it's deprecated; this should never need to change
-                         install: true,
-                         include_directories: [
-                         	'libstdc++_standalone/include/'
-                         ],
-                         cpp_args: [
-                         	'-fPIC',
-                         	'--std=c++23'
-                         ])
+                             	'libstdc++_standalone/__cxa_guard.cpp'
+                             ],
+                             soversion: 0, # this tiny library's stable ABI will definitely never change, it's deprecated; this should never need to change
+                             install: true,
+                             include_directories: [
+                             	'libstdc++_standalone/include/'
+                             ],
+                             cpp_args: [
+                             	'-fPIC',
+                             	'--std=c++23'
+                             ])
+
+install_data([
+             	'cfg.d/bionic_translation.cfg'
+             ],
+             install_dir: get_option('datadir') / 'bionic_translation/cfg.d')
