@@ -1,14 +1,47 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define OPEN_NEEDS_MODE(flags) ((flags & O_CREAT) || (flags & O_TMPFILE))
 
-int bionic_open(const char *path, int oflag, ...)
+/* FIXME - move most of this out of this file */
+static bool starts_with(const char *string, const char *substring)
 {
+	return !strncmp(string, substring, strlen(substring));
+}
+
+static bool apply_path_overrides(char **path) {
+	bool free_path = 0;
+
+	/* TODO: read the overrides from a config file */
+	if(!strcmp(*path, "/system/etc/fonts.xml"))
+		*path = "/etc/fonts.xml";
+
+	if(starts_with(*path, "/fonts/")) {
+		char *old_path = strchr(*path + 1, '/'); // after /fonts
+		*path = malloc(sizeof("/usr/share/fonts/truetype") + strlen(old_path)); // sizeof includes the NUL byte
+		sprintf(*path, "/usr/share/fonts/truetype%s", old_path);
+		free_path = true;
+	}
+
+	if (starts_with(*path, "/system/") || starts_with(*path, "/data/")) {
+		printf("%s: !!! app trying to access >%s<, which will certainly fail\n", __func__, *path);
+		fflush(stdout);
+	}
+
+	return free_path;
+}
+
+int bionic_open(char *path, int oflag, ...)
+{
+	int fd;
 	int mode;
+
+	bool free_path = apply_path_overrides(&path);
 
 	// Hide TracerPid from /proc/self/status for hideous apps that check for debugger.
 	// Note, since /proc/self/status doesn't get updated anymore, this may break some stuff.
@@ -47,8 +80,24 @@ int bionic_open(const char *path, int oflag, ...)
 		mode = va_arg(arg, int);
 		va_end(arg);
 
-		return open(path, oflag, mode);
+		fd = open(path, oflag, mode);
 	} else {
-		return open(path, oflag);
+		fd = open(path, oflag);
 	}
+
+	if(free_path)
+		free(path);
+
+	return fd;
+}
+
+FILE *bionic_fopen(char *path, const char *restrict mode)
+{
+	FILE *file;
+	bool free_path = apply_path_overrides(&path);
+
+	file = fopen(path, mode);
+	if(free_path)
+		free(path);
+	return file;
 }
