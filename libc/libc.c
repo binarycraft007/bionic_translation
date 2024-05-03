@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <math.h>
 #include <netdb.h> // h_errno
@@ -11,11 +12,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/user.h> // PAGE_SIZE, PAGE_SHIFT
-#include <unistd.h>
+
 
 struct bionic_dirent {
 	uint64_t d_ino;
@@ -126,11 +130,67 @@ bionic___get_h_errno(void)
 	return &h_errno;
 }
 
+// this doesn't seem to be needed for 64bit glibc or musl
+// 32bit glibc seems to work without as well but it doesn't hurt
+#ifndef __LP64__
+typedef uint32_t bionic_time_t;
+
+struct bionic_timespec {
+	bionic_time_t tv_sec;
+	long tv_nsec;
+};
+
+struct bionic_stat {
+	unsigned long long st_dev;
+	unsigned int pad0;
+	unsigned long __st_ino;
+	unsigned int st_mode;
+	int st_nlink;
+	int st_uid;
+	int st_gid;
+	unsigned long long st_rdev;
+	unsigned int pad3;
+	long long st_size;
+	unsigned long st_blksize;
+	unsigned long long st_blocks;
+	struct bionic_timespec st_atim;
+	struct bionic_timespec st_mtim;
+	struct bionic_timespec st_ctim;
+	unsigned long long st_ino;
+};
+
+int bionic_stat(const char *restrict path, struct bionic_stat *restrict buf)
+{
+	verbose("%s", path);
+	struct stat native_stat;
+
+	int ret = stat(path, &native_stat);
+	*buf = (struct bionic_stat) {
+		.st_dev = native_stat.st_dev,
+		.st_ino = native_stat.st_ino,
+		.st_mode = native_stat.st_mode,
+		.st_nlink = native_stat.st_nlink,
+		.st_uid = native_stat.st_uid,
+		.st_gid = native_stat.st_gid,
+		.st_rdev = native_stat.st_rdev,
+		.st_blksize = native_stat.st_blksize,
+		.st_blocks = native_stat.st_blocks,
+		.st_atim.tv_sec = (bionic_time_t)native_stat.st_atim.tv_sec,
+		.st_atim.tv_nsec = native_stat.st_atim.tv_nsec,
+		.st_mtim.tv_sec = (bionic_time_t)native_stat.st_mtim.tv_sec,
+		.st_mtim.tv_nsec = native_stat.st_mtim.tv_nsec,
+		.st_ctim.tv_sec = (bionic_time_t)native_stat.st_ctim.tv_sec,
+		.st_ctim.tv_nsec = native_stat.st_ctim.tv_nsec,
+	};
+	return ret;
+}
+#else
 int bionic_stat(const char *restrict path, struct stat *restrict buf)
 {
 	verbose("%s", path);
 	return stat(path, buf);
 }
+#endif
 
 int bionic_lstat(const char *restrict path, struct stat *restrict buf)
 {
@@ -366,21 +426,12 @@ bionic___libc_init(void *raw_args, void (*onexit)(void), int (*slingshot)(int, c
 	exit(slingshot(arg.s.argc, arg.s.argv, arg.s.argv + arg.s.argc + 1));
 }
 
-#ifndef __LP64__ // bionic uses 32 bit time_t on 32 bit systems
-#include <time.h>
-
-struct bionic_timespec {
-	/** Number of seconds. */
-	long tv_sec;
-	/** Number of nanoseconds. Must be less than 1,000,000,000. */
-	long tv_nsec;
-};
-
+#ifndef __LP64__
 int bionic_clock_gettime(clockid_t clockid, struct bionic_timespec *bionic_tp)
 {
 	struct timespec tp;
 	int ret = clock_gettime(clockid, &tp);
-	bionic_tp->tv_sec = tp.tv_sec;
+	bionic_tp->tv_sec = (bionic_time_t)tp.tv_sec;
 	bionic_tp->tv_nsec = tp.tv_nsec;
 	return ret;
 }
