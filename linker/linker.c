@@ -766,7 +766,7 @@ static int apkenv__open_lib(const char *name)
 	int fd;
 	struct stat filestat;
 
-	printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> [%s]\n", name);
+	TRACE("[ %5d apkenv__open_lib called with %s ]\n", apkenv_pid, name);
 
 	if ((stat(name, &filestat) >= 0) && S_ISREG(filestat.st_mode)) {
 		if ((fd = open(name, O_RDONLY)) >= 0)
@@ -802,7 +802,6 @@ static int apkenv_open_library(const char *name, char *fullpath)
 	for (path = apkenv_ldpaths; *path; path++) {
 		char *ldpath_normalized = realpath(*path, NULL);
 		if (path_normalized_name && ldpath_normalized) {
-			TRACE("----> '%s' vs '%s'\n", path_normalized_name, ldpath_normalized);
 			TRACE("[ %5d comparing '%s' against '%s' to see if the libary is in BIONIC_LD_LIBRARY_PATH ]\n", apkenv_pid, path_normalized_name, ldpath_normalized);
 			if (!strcmp(path_normalized_name, ldpath_normalized)) {
 				if ((fd = apkenv__open_lib(name)) >= 0) {
