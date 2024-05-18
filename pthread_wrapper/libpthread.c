@@ -65,6 +65,17 @@ typedef struct {
 	};
 } bionic_mutexattr_t;
 
+typedef struct {
+	union {
+		#if defined(__LP64__)
+		  int32_t __private[14];
+		#else
+		  int32_t __private[10];
+		#endif
+		pthread_rwlock_t *glibc;
+	};
+} bionic_rwlock_t;
+
 static const struct {
 	bionic_mutex_t bionic;
 	pthread_mutex_t glibc;
@@ -100,6 +111,9 @@ _Static_assert(sizeof(bionic_once_t) == sizeof(pthread_once_t), "bionic_once_t a
 
 typedef long bionic_pthread_t;
 _Static_assert(sizeof(bionic_pthread_t) == sizeof(pthread_t), "bionic_pthread_t and pthread_t size mismatch");
+
+typedef long bionic_rwlockattr_t;
+_Static_assert(sizeof(bionic_rwlockattr_t) == sizeof(pthread_rwlockattr_t), "bionic_rwlockattr_t and pthread_rwlockattr_t size mismatch");
 
 struct bionic_pthread_cleanup_t {
 	union {
@@ -147,7 +161,7 @@ void bionic___pthread_cleanup_push(struct bionic_pthread_cleanup_t *c, void (*ro
 
 	__pthread_register_cancel(c->glibc);
 #else
-	c->musl = malloc(sizeof(struct __ptcb)); // TODO - use the mmap as above?
+	c->musl = mmap(NULL, sizeof(struct __ptcb), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 	c->routine = routine;
 	c->arg = arg;
 	_pthread_cleanup_push(c->musl, routine, arg);
@@ -166,9 +180,15 @@ void bionic___pthread_cleanup_pop(struct bionic_pthread_cleanup_t *c, int execut
 	munmap(c->glibc, sizeof(*c->glibc));
 #else
 	_pthread_cleanup_pop(c->musl, execute);
-	free(c->musl);
+	munmap(c->musl, sizeof(struct __ptcb));
 #endif
 }
+
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* sem */
 
 int bionic_sem_destroy(bionic_sem_t *sem)
 {
@@ -226,6 +246,66 @@ int bionic_sem_timedwait(bionic_sem_t *sem, const struct timespec *abs_timeout)
 	INIT_IF_NOT_MAPPED(sem, default_sem_init);
 	return sem_timedwait(sem->glibc, abs_timeout);
 }
+
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* rwlock */
+
+int bionic_pthread_rwlock_destroy(bionic_rwlock_t *rwlock)
+{
+	assert(rwlock);
+	int ret = 0;
+	if (IS_MAPPED(rwlock)) {
+		ret = pthread_rwlock_destroy(rwlock->glibc);
+		munmap(rwlock->glibc, sizeof(*rwlock->glibc));
+	}
+	return ret;
+
+}
+
+static void default_rwlock_init(bionic_rwlock_t *rwlock)
+{
+	// Apparently some android apps/libs (Qt5) do not call pthread_rwlock_init()
+	assert(rwlock);
+	rwlock->glibc = mmap(NULL, sizeof(*rwlock->glibc), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	memset(rwlock->glibc, 0, sizeof(*rwlock->glibc));
+}
+
+int bionic_pthread_rwlock_init(bionic_rwlock_t *restrict rwlock, const bionic_rwlockattr_t *restrict attr)
+{
+	assert(rwlock);
+	rwlock->glibc = mmap(NULL, sizeof(*rwlock->glibc), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	return pthread_rwlock_init(rwlock->glibc, (pthread_rwlockattr_t *)attr);
+}
+
+int bionic_pthread_rwlock_rdlock(bionic_rwlock_t *rwlock)
+{
+	assert(rwlock);
+	INIT_IF_NOT_MAPPED(rwlock, default_rwlock_init);
+	return pthread_rwlock_rdlock(rwlock->glibc);
+}
+
+int bionic_pthread_rwlock_unlock(bionic_rwlock_t *rwlock)
+{
+	assert(rwlock);
+	INIT_IF_NOT_MAPPED(rwlock, default_rwlock_init);
+	return pthread_rwlock_unlock(rwlock->glibc);
+}
+
+int bionic_pthread_rwlock_wrlock(bionic_rwlock_t *rwlock)
+{
+	assert(rwlock);
+	INIT_IF_NOT_MAPPED(rwlock, default_rwlock_init);
+	return pthread_rwlock_wrlock(rwlock->glibc);
+}
+
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* attr */
 
 int bionic_pthread_attr_destroy(bionic_attr_t *attr)
 {
@@ -322,6 +402,12 @@ int bionic_pthread_create(bionic_pthread_t *thread, const bionic_attr_t *attr, v
 	return pthread_create((pthread_t*)thread, (attr ? attr->glibc : NULL), start, arg);
 }
 
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* mutexattr */
+
 int bionic_pthread_mutexattr_settype(bionic_mutexattr_t *attr, int type)
 {
 	assert(attr && IS_MAPPED(attr));
@@ -349,15 +435,21 @@ int bionic_pthread_mutexattr_init(bionic_mutexattr_t *attr)
 	return pthread_mutexattr_init(attr->glibc);
 }
 
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* mutex */
+
 static void default_pthread_mutex_init(bionic_mutex_t *mutex)
 {
 	assert(mutex);
-	mutex->glibc = mmap(NULL, sizeof(*mutex->glibc), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
-	for (size_t i = 0; i < ARRAY_SIZE(bionic_mutex_init_map); ++i) {
-		if (!memcmp(&bionic_mutex_init_map[i].bionic, mutex, sizeof(*mutex)))
+	for (size_t i = 0; i < ARRAY_SIZE(bionic_mutex_init_map); i++) {
+		if (memcmp(&bionic_mutex_init_map[i].bionic, mutex, sizeof(*mutex)))
 			continue;
 
+		mutex->glibc = mmap(NULL, sizeof(*mutex->glibc), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 		memcpy(mutex->glibc, &bionic_mutex_init_map[i].glibc, sizeof(bionic_mutex_init_map[i].glibc));
 		return;
 	}
@@ -408,6 +500,12 @@ int bionic_pthread_mutex_unlock(bionic_mutex_t *mutex)
 	return pthread_mutex_unlock(mutex->glibc);
 }
 
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* condattr */
+
 int bionic_pthread_condattr_destroy(bionic_condattr_t *attr)
 {
 	assert(attr);
@@ -431,6 +529,12 @@ int bionic_pthread_condattr_setclock(bionic_condattr_t *attr, clockid_t clock_id
 	assert(attr && IS_MAPPED(attr));
 	return pthread_condattr_setclock(attr->glibc, clock_id);
 }
+
+/* ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- *
+ * ---------------------------------------------------------------------------------------------- */
+
+/* cond */
 
 static void default_pthread_cond_init(bionic_cond_t *cond)
 {
