@@ -23,7 +23,7 @@ depending on how many libraries have been loaded)
 
 A less annoying option is to automate the manual method:
 ```
-b apkenv_insert_soinfo_into_debug_map
+hb apkenv_insert_soinfo_into_debug_map
 commands
 eval "add-symbol-file %s -o info->base", info->fullpath
 c
