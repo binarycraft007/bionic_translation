@@ -109,10 +109,10 @@ _Static_assert(sizeof(bionic_key_t) == sizeof(pthread_key_t), "bionic_key_t and 
 typedef int bionic_once_t;
 _Static_assert(sizeof(bionic_once_t) == sizeof(pthread_once_t), "bionic_once_t and pthread_once_t size mismatch");
 
-typedef long bionic_pthread_t;
+typedef long bionic_pthread_t; // seems to be 32bit on 32bit musl, 64bit everywhere else, which is why long happens to work
 _Static_assert(sizeof(bionic_pthread_t) == sizeof(pthread_t), "bionic_pthread_t and pthread_t size mismatch");
 
-typedef long bionic_rwlockattr_t;
+typedef uint64_t bionic_rwlockattr_t;
 _Static_assert(sizeof(bionic_rwlockattr_t) == sizeof(pthread_rwlockattr_t), "bionic_rwlockattr_t and pthread_rwlockattr_t size mismatch");
 
 struct bionic_pthread_cleanup_t {
