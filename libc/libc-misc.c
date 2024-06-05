@@ -6,7 +6,7 @@
 #include <string.h>
 
 // this seems to not be a stable ABI, so hopefully nobody treats it as such
-// FIXME: move this out into it's own file once whenever we get to implementing it more properly
+// FIXME: move this out into it's own file whenever we get to implementing it more properly
 struct prop_info {
 	const char *name;
 };
@@ -56,17 +56,6 @@ static bool __is_utf8_locale(const char *locale_name)
 
 char *bionic_setlocale(int category, const char *locale)
 {
-	// TODO: unfuck our message printing, possibly by using android's logging library, so that we don't need to worry about messages getting missed
-	if (!getenv("UGLY_BIONIC_SETLOCALE_OVERRIDE")) {
-		fprintf(stderr, "bionic_setlocale: we don't know if this is behaving correctly, so we're crashing here (sorry);\n"
-				"if you have found an app which uses this, please define the env `UGLY_BIONIC_SETLOCALE_OVERRIDE=`\n"
-				"and make sure to suspect this function if something remotely locale related is broken\n"
-				"most importantly, let us know on gitlab\n"
-				"(the reason for crashing here is that simply printing a warning risks someone missing it and wasting time, \n"
-				"since broken locale can cause very hard to diagnose issues)\n");
-		exit(69);
-	}
-
 	// list of allowed locales from bionic
 	if (!locale ||
 	    !strcmp(locale, "") ||
