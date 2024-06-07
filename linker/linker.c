@@ -1440,9 +1440,13 @@ soinfo *apkenv_find_library(const char *name, const bool try_glibc, int glibc_fl
 	// some libraries have `/system/lib/{name}` in DT_NEEDED, just strip the prefix
 	const char *prefix = "/system/lib/";
 	const int prefix_len = strlen(prefix);
+	const char *prefix64 = "/system/lib64/";
+	const int prefix64_len = strlen(prefix64);
 
 	if(!strncmp(name, prefix, prefix_len))
 		name += prefix_len;
+	else if(!strncmp(name, prefix64, prefix64_len))
+		name += prefix64_len;
 
 	for(int i = 0; i < lib_override_map_len; i++) {
 		if(!strcmp(lib_override_map[i].from, name)) {
