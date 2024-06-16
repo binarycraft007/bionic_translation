@@ -45,6 +45,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fnmatch.h>
 
 #include <pthread.h>
 
@@ -801,9 +802,11 @@ static int apkenv_open_library(const char *name, char *fullpath)
 
 	for (path = apkenv_ldpaths; *path; path++) {
 		char *ldpath_normalized = realpath(*path, NULL);
+		if (!ldpath_normalized)
+			ldpath_normalized = strdup(*path);
 		if (path_normalized_name && ldpath_normalized) {
 			TRACE("[ %5d comparing '%s' against '%s' to see if the libary is in BIONIC_LD_LIBRARY_PATH ]\n", apkenv_pid, path_normalized_name, ldpath_normalized);
-			if (!strcmp(path_normalized_name, ldpath_normalized)) {
+			if (!fnmatch(ldpath_normalized, path_normalized_name, 0)) {
 				if ((fd = apkenv__open_lib(name)) >= 0) {
 					free(ldpath_normalized);
 					free(path_normalized_name);
