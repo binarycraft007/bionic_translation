@@ -49,27 +49,19 @@ void android_set_abort_message(const char *msg)
 }
 
 // setlocale is a bit special on bionic, try to mimic the behavior
-static bool __is_utf8_locale(const char *locale_name)
-{
-	return (!locale_name || *locale_name == '\0' || strstr(locale_name, "UTF-8"));
-}
-
 char *bionic_setlocale(int category, const char *locale)
 {
+	if(!locale)
+		return setlocale(category, NULL);
+
 	// list of allowed locales from bionic
-	if (!locale ||
-	    !strcmp(locale, "") ||
-	    !strcmp(locale, "C") ||
+	if (!strcmp(locale, "") ||
 	    !strcmp(locale, "C.UTF-8") ||
-	    !strcmp(locale, "en_US.UTF-8") ||
-	    !strcmp(locale, "POSIX")) {
-		if (__is_utf8_locale(locale)) {
-			setlocale(LC_ALL, "en_US.UTF-8");
-			return "C.UTF-8";
-		} else {
-			setlocale(LC_ALL, "en_US");
-			return "C";
-		}
+	    !strcmp(locale, "en_US.UTF-8")) {
+		return setlocale(category, "C.UTF-8");
+	} else if (!strcmp(locale, "C") ||
+		   !strcmp(locale, "POSIX")) {
+		return setlocale(category, "C");
 	} else {
 		errno = ENOENT;
 		return NULL;
