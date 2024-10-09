@@ -48,6 +48,7 @@ pthread_bio = shared_library('pthread_bio', [
                                             c_args: [
                                             	'-fPIC',
                                             	'-D_GNU_SOURCE',
+                                            	'-fno-exceptions',
                                             ],
                                             link_args: [
                                             	'-Wl,--no-as-needed', # this really shouldn't be needed, since symbols from libpthread are used, but somehow it is
