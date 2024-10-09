@@ -20,6 +20,9 @@
 #include <sys/types.h>
 #include <sys/user.h> // PAGE_SIZE, PAGE_SHIFT
 
+#ifndef PAGE_SIZE
+#define PAGE_SIZE PAGESIZE
+#endif
 
 struct bionic_dirent {
 	uint64_t d_ino;

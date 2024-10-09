@@ -49,6 +49,11 @@
 #pragma message "The R_AARCH64_TLS_DTPREL32 was not set :("
 #endif
 
+#ifndef R_AARCH64_TLS_TPREL64
+#define R_AARCH64_TLS_TPREL64 1030
+#pragma message "The R_AARCH64_TLS_TPREL64 was not set :("
+#endif
+
 void apkenv_debugger_init();
 
 /* magic shared structures that GDB knows about */
