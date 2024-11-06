@@ -1,6 +1,8 @@
-#include <stddef.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #ifndef __GLIBC__
 
