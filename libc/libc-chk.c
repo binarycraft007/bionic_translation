@@ -283,3 +283,16 @@ ssize_t bionic___write_chk(int fd, const void* buf, size_t count, size_t buf_siz
 
 	return write(fd, buf, count);
 }
+
+char *bionic___fgets_chk(char *dest, int supplied_size, FILE* stream, size_t dest_len_from_compiler)
+{
+	if (supplied_size < 0) {
+		fprintf(stderr, "fgets: buffer size < 0");
+		abort();
+	}
+	if (((size_t) supplied_size) > dest_len_from_compiler) {
+		fprintf(stderr, "fgets: prevented write past end of buffer");
+		abort();
+	}
+	return fgets(dest, supplied_size, stream);
+}
