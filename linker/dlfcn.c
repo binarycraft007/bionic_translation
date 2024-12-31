@@ -335,8 +335,17 @@ __attribute__((constructor)) void construct(void)
 	memcpy(apkenv_libdl_symtab, symtab, sizeof(symtab));
 
 	// the config files contain overrides like libc.so -> libc_bio.so.0
-	read_cfg_dir("/usr/local/share/bionic_translation/cfg.d");
-	read_cfg_dir("/usr/share/bionic_translation/cfg.d");
+	const char *xdg_data_dirs = getenv("XDG_DATA_DIRS") ?: "/usr/local/share:/usr/share";
+	char *cfg_path = malloc(strlen(xdg_data_dirs) + sizeof("/bionic_translation/cfg.d"));
+	while (*xdg_data_dirs) {
+		size_t len = strcspn(xdg_data_dirs, ":");
+		memcpy(cfg_path, xdg_data_dirs, len);
+		memcpy(cfg_path + len, "/bionic_translation/cfg.d", sizeof("/bionic_translation/cfg.d"));
+		read_cfg_dir(cfg_path);
+		xdg_data_dirs += len;
+		xdg_data_dirs += strspn(xdg_data_dirs, ":");
+	}
+	free(cfg_path);
 	read_cfg_dir("/etc/bionic_translation/cfg.d");
 
 
