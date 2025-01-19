@@ -78,13 +78,6 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 	return strlen(src);
 }
 
-#ifndef strtoll_l
-long long int strtoll_l(const char *restrict nptr, char **restrict endptr, int base, locale_t loc)
-{
-	return strtoll(nptr, endptr, base);
-}
-#endif
-
 pid_t gettid(void)
 {
 	return syscall(SYS_gettid);
@@ -344,10 +337,11 @@ void bionic___assert2(const char *file, int line, const char *function, const ch
 	abort();
 }
 
+/* in most if not all cases this is not what the app will use, see main-executable/bionic_compat.c */
 uintptr_t bionic___stack_chk_guard = 4;
 
-__attribute__((noreturn)) void
-bionic___stack_chk_fail(void)
+__attribute__((noreturn))
+void bionic___stack_chk_fail(void)
 {
 	abort();
 }
