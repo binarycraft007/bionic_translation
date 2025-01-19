@@ -7,6 +7,16 @@ same with `bionic_translation/libc/`
 `bionic_translation/libstdc++_standalone` is taken from bionic sources and coerced to compile; it's just "a minimum implementation of libc++ functionality not provided by compiler",
 and things break when it's not linked in and android libs try to call into it and instead end up in the glibc or llvm libc++ implementations  
 
+### main_executable
+
+`main_executable/bionic_compat.c` contains things which need to be linked into the main executable
+for various reasons. Currently, it contains:
+- `_r_debug` hacks for musl (although the gdb hooks don't seem to work particularly well, see below)
+- for arm(64), static initialization for bionic TLS slots 2-7
+
+For now, this needs to be copied into your project.  
+(TODO: build a static library?)
+
 ### note on debugging with gdb
 
 At least with glibc, the following sometimes fixes issues with shared library load notifications:
