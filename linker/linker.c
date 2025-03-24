@@ -1226,7 +1226,7 @@ apkenv_load_segments(int fd, void *header, soinfo *si)
 				DEBUG_DUMP_PHDR(phdr, "PT_ARM_EXIDX", apkenv_pid);
 				/* exidx entries (used for stack unwinding) are 8 bytes each.
 				 */
-				si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
+				si->ARM_exidx = (ElfW(Addr) *)phdr->p_vaddr;
 				si->ARM_exidx_count = phdr->p_memsz / 8;
 			}
 #endif
@@ -2615,7 +2615,7 @@ static int apkenv_link_image(soinfo *si, /*unused...?*/ unsigned wr_offset)
 			if (phdr->p_type == PT_ARM_EXIDX) {
 				/* exidx entries (used for stack unwinding) are 8 bytes each.
 				 */
-				si->ARM_exidx = (uint64_t *)phdr->p_vaddr;
+				si->ARM_exidx = (ElfW(Addr) *)phdr->p_vaddr;
 				si->ARM_exidx_count = phdr->p_memsz / 8;
 			}
 #endif
